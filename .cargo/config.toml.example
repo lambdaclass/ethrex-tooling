@@ -1,0 +1,25 @@
+# Local development overrides for cross-repo work.
+# Copy this file to .cargo/config.toml and adjust the path to your local ethrex clone.
+# .cargo/config.toml is gitignored — never commit it.
+
+[patch."https://github.com/lambdaclass/ethrex"]
+ethrex = { path = "../ethrex/cmd/ethrex" }
+ethrex-blockchain = { path = "../ethrex/crates/blockchain" }
+ethrex-common = { path = "../ethrex/crates/common" }
+ethrex-config = { path = "../ethrex/crates/common/config" }
+ethrex-crypto = { path = "../ethrex/crates/common/crypto" }
+ethrex-guest-program = { path = "../ethrex/crates/guest-program" }
+ethrex-l2 = { path = "../ethrex/crates/l2" }
+ethrex-l2-common = { path = "../ethrex/crates/l2/common" }
+ethrex-l2-prover = { path = "../ethrex/crates/l2/prover" }
+ethrex-l2-rpc = { path = "../ethrex/crates/l2/networking/rpc" }
+ethrex-levm = { path = "../ethrex/crates/vm/levm" }
+ethrex-p2p = { path = "../ethrex/crates/networking/p2p" }
+ethrex-prover = { path = "../ethrex/crates/prover" }
+ethrex-rlp = { path = "../ethrex/crates/common/rlp" }
+ethrex-rpc = { path = "../ethrex/crates/networking/rpc" }
+ethrex-sdk = { path = "../ethrex/crates/l2/sdk" }
+ethrex-storage = { path = "../ethrex/crates/storage" }
+ethrex-storage-rollup = { path = "../ethrex/crates/l2/storage" }
+ethrex-trie = { path = "../ethrex/crates/common/trie" }
+ethrex-vm = { path = "../ethrex/crates/vm" }
