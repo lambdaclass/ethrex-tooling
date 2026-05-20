@@ -31,7 +31,7 @@ debug: false
 
 # Periodic digest ("heartbeat") posted to Slack to confirm the monitor
 # is alive and give a network snapshot. Set 0 to disable.
-heartbeat_interval_minutes: 360
+heartbeat_interval_minutes: 180
 # Slots scanned for missed/orphaned counts in each heartbeat.
 heartbeat_slot_window: 256
 # How to include non-`client_match` clients in the heartbeat:
