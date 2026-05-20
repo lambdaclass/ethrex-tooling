@@ -21,8 +21,10 @@ class DoraClient:
         r = self._session.get(url, params=params, timeout=self.timeout)
         r.raise_for_status()
         data = r.json()
-        if isinstance(data, dict) and data.get("status") and data["status"] != "OK":
-            raise RuntimeError(f"dora API error at {path}: {data}")
+        if isinstance(data, dict):
+            api_status = data.get("status")
+            if api_status and api_status != "OK":
+                raise RuntimeError(f"dora API error at {path}: {data}")
         return data
 
     def slots(self, limit: int = 64, with_orphaned: int = 1, with_missing: int = 1) -> list[dict]:
@@ -57,9 +59,14 @@ class DoraClient:
         which is empty for ethrex. So we parse the rendered table.
         """
         url = f"{self.base_url}/clients/execution"
-        r = self._session.get(url, timeout=self.timeout)
+        # Cap the read at 512 KB. Dora's real page is ~220 KB; this guards
+        # against a malformed/runaway response triggering pathological
+        # regex backtracking or a huge in-memory string.
+        r = self._session.get(url, timeout=self.timeout, stream=True)
         r.raise_for_status()
-        body = r.text
+        body = r.raw.read(512 * 1024, decode_content=True).decode(
+            r.encoding or "utf-8", errors="replace"
+        )
         out: dict[str, str] = {}
         for name, row in _ROW_RE.findall(body):
             m = _VERSION_RE.search(row)

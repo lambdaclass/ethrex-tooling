@@ -37,9 +37,15 @@ def load_config(path: str, require_slack: bool = True) -> Config:
         raw = yaml.safe_load(f) or {}
 
     checks_raw = raw.pop("checks", {}) or {}
-    checks = Checks(**checks_raw)
+    try:
+        checks = Checks(**checks_raw)
+    except TypeError as e:
+        raise ValueError(f"config: unknown key under `checks:` ({e})") from e
 
-    cfg = Config(checks=checks, **raw)
+    try:
+        cfg = Config(checks=checks, **raw)
+    except TypeError as e:
+        raise ValueError(f"config: unknown top-level key ({e})") from e
 
     env_hook = os.environ.get("SLACK_WEBHOOK_URL")
     if env_hook:

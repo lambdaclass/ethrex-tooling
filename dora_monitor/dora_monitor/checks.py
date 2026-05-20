@@ -63,8 +63,13 @@ def check_client_head_forks(
     if not forks:
         return
 
-    # Canonical head = fork with the highest head_slot (majority assumption).
-    canonical_fork = max(forks, key=lambda f: int(f.get("head_slot", 0)))
+    # Canonical = fork followed by the most clients. Using head_slot would
+    # mis-identify a minority fork that's briefly ahead during a split.
+    # Tiebreak on highest head_slot just to be deterministic.
+    canonical_fork = max(
+        forks,
+        key=lambda f: (len(f.get("clients") or []), int(f.get("head_slot", 0))),
+    )
     canonical_slot = int(canonical_fork.get("head_slot", 0))
     canonical_root = canonical_fork.get("head_root", "")
     state.last_known_head = max(state.last_known_head, canonical_slot)
@@ -93,11 +98,14 @@ def check_client_head_forks(
                 "is_canonical_fork": is_canonical,
             }
 
-            if cfg.checks.offline and status and status != "online":
+            # Only `offline` is an actionable alert. `synchronizing` and
+            # `optimistic` are normal transient states (esp. at startup); we
+            # don't want to page on them. Use sync_lag for stuck-syncing nodes.
+            if cfg.checks.offline and status == "offline":
                 current_offline.add(name)
 
-            # Skip fork/lag judgement when the client isn't online; head_slot
-            # is stale and would produce noisy alerts.
+            # Skip fork/lag judgement when the client isn't fully online;
+            # head_slot is stale and would produce noisy alerts.
             if status != "online":
                 continue
 
@@ -184,12 +192,22 @@ def _format_heartbeat(
     dora: DoraClient,
     cfg: Config,
 ) -> str:
+    """Compose the heartbeat digest text.
+
+    Makes two separate HTTP requests (client_head_forks + slots) so the head
+    slot shown and the missed/orphaned counts are sampled at slightly
+    different instants. They may disagree by a slot or two; this is by
+    design, not a bug.
+    """
     payload = dora.client_head_forks()
     forks = payload.get("forks") or []
     canonical_slot = 0
     canonical_root = ""
     if forks:
-        canonical = max(forks, key=lambda f: int(f.get("head_slot", 0)))
+        canonical = max(
+            forks,
+            key=lambda f: (len(f.get("clients") or []), int(f.get("head_slot", 0))),
+        )
         canonical_slot = int(canonical.get("head_slot", 0))
         canonical_root = canonical.get("head_root", "")
 
@@ -283,7 +301,7 @@ def maybe_heartbeat(
         return
     now = time.time()
     interval_s = cfg.heartbeat_interval_minutes * 60
-    if state.last_heartbeat_ts and (now - state.last_heartbeat_ts) < interval_s:
+    if state.last_heartbeat_ts > 0 and (now - state.last_heartbeat_ts) < interval_s:
         return
     try:
         text = _format_heartbeat(dora, cfg)
@@ -322,7 +340,10 @@ def run_checks(
         log.exception("heartbeat failed: %s", e)
 
     # Trim reported-slots sets to keep state file from growing forever.
-    cutoff = state.last_known_head - 10_000
-    if cutoff > 0:
+    # Guard against last_known_head being 0 (e.g. all client_head_forks
+    # checks disabled or the check threw on every tick): without the guard,
+    # cutoff would go negative and the trim would silently be a no-op.
+    if state.last_known_head > 10_000:
+        cutoff = state.last_known_head - 10_000
         state.reported_missed_slots = {s for s in state.reported_missed_slots if s >= cutoff}
         state.reported_orphan_slots = {s for s in state.reported_orphan_slots if s >= cutoff}

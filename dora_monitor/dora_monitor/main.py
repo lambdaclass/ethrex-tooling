@@ -41,8 +41,9 @@ def cli() -> None:
     dora = DoraClient(cfg.dora_url, timeout=cfg.http_timeout)
     slack = SlackNotifier(cfg.slack_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
     if args.dry_run:
-        def _dry_send(text: str, _orig=slack._prefix) -> None:
-            print(f"[DRY-RUN] {_orig()}{text}")
+        prefix = slack._prefix()
+        def _dry_send(text: str) -> None:
+            print(f"[DRY-RUN] {prefix}{text}")
         slack.send = _dry_send  # type: ignore[assignment]
 
     state = load_state(None if args.reset_state else cfg.state_file)
