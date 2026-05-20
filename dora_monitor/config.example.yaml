@@ -1,0 +1,52 @@
+# Dora explorer base URL (no trailing slash).
+dora_url: "https://dora.bal-devnet-7.ethpandaops.io"
+
+# Substring (case-insensitive) matched against proposer_name / client name
+# in the Dora API. Any name containing this is considered "ours".
+client_match: "ethrex"
+
+# Slack incoming webhook URL. Can also be set via SLACK_WEBHOOK_URL env var.
+slack_webhook_url: ""
+
+# Optional label shown in alert headers (e.g. network name).
+network_label: "bal-devnet-7"
+
+# Poll interval in seconds.
+poll_interval: 30
+
+# How many recent slots to scan each tick for missed/orphaned blocks.
+slot_scan_limit: 64
+
+# Sync lag threshold (slots behind the canonical head) before alerting.
+sync_lag_threshold: 16
+
+# Path for persisted dedup state. Use null for in-memory only.
+state_file: "./dora_monitor_state.json"
+
+# HTTP timeout in seconds.
+http_timeout: 10
+
+# Set true for verbose logging.
+debug: false
+
+# Periodic digest ("heartbeat") posted to Slack to confirm the monitor
+# is alive and give a network snapshot. Set 0 to disable.
+heartbeat_interval_minutes: 360
+# Slots scanned for missed/orphaned counts in each heartbeat.
+heartbeat_slot_window: 256
+# How to include non-`client_match` clients in the heartbeat:
+#   off       — skip them entirely
+#   summary   — one-line aggregate ("12 total, 1 non-online, 0 off-canonical")
+#   detailed  — per-client list with status / head / distance
+heartbeat_other_clients: "detailed"
+
+# Which checks to enable.
+checks:
+  missed_blocks: true
+  forks: true
+  offline: true
+  sync_lag: true
+  # Posts an alert when an ethrex EL's reported version string changes
+  # between polls (deploy / rollback detection). Reads from the HTML page
+  # since the v1 JSON API doesn't expose ethrex's EL version.
+  version_drift: true
