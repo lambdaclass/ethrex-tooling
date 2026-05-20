@@ -40,6 +40,21 @@ class SlackNotifier:
         for i, chunk in enumerate(chunks, 1):
             self._post(f"{chunk}\n_({i}/{total})_")
 
+    def send_blocks(self, blocks: list[dict], fallback: str) -> None:
+        """Post a Slack Block Kit message. `fallback` is the plain-text
+        version shown in notifications and clients that can't render blocks.
+        """
+        body = {"blocks": blocks, "text": f"{self._prefix()}{fallback}"}
+        try:
+            r = requests.post(self.webhook_url, json=body, timeout=self.timeout)
+            if r.status_code == 429:
+                retry = r.headers.get("Retry-After", "?")
+                log.error("slack rate-limited (429, retry-after=%s); blocks dropped", retry)
+            elif r.status_code >= 300:
+                log.error("slack webhook (blocks) failed: %s %s", r.status_code, r.text[:200])
+        except requests.RequestException as e:
+            log.error("slack webhook (blocks) error: %s", e)
+
 
 def _split_on_lines(text: str, limit: int) -> list[str]:
     """Split text on newline boundaries into chunks of at most `limit` chars.

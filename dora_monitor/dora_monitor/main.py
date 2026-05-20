@@ -41,10 +41,17 @@ def cli() -> None:
     dora = DoraClient(cfg.dora_url, timeout=cfg.http_timeout)
     slack = SlackNotifier(cfg.slack_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
     if args.dry_run:
+        import json as _json
         prefix = slack._prefix()
         def _dry_send(text: str) -> None:
             print(f"[DRY-RUN] {prefix}{text}")
+        def _dry_send_blocks(blocks: list, fallback: str) -> None:
+            print(f"[DRY-RUN] {prefix}{fallback}")
+            if args.debug:
+                print("[DRY-RUN blocks JSON]")
+                print(_json.dumps(blocks, indent=2))
         slack.send = _dry_send  # type: ignore[assignment]
+        slack.send_blocks = _dry_send_blocks  # type: ignore[assignment]
 
     state = load_state(None if args.reset_state else cfg.state_file)
     if args.dry_run:

@@ -188,15 +188,59 @@ def check_version_drift(
             state.client_versions[name] = version
 
 
-def _format_heartbeat(
+_STATUS_EMOJI = {
+    "online": ":large_green_circle:",
+    "synchronizing": ":large_yellow_circle:",
+    "optimistic": ":large_orange_circle:",
+    "offline": ":red_circle:",
+}
+
+
+def _status_emoji(status: str) -> str:
+    return _STATUS_EMOJI.get(status, ":white_circle:")
+
+
+def _health_rank(entry: dict) -> int:
+    """Lower rank = surface higher. Sort key for ordering clients."""
+    status = entry["status"]
+    if status == "offline":
+        return 0
+    if status in ("synchronizing", "optimistic"):
+        return 1
+    if not entry["is_canonical_fork"]:
+        return 2
+    if entry["distance"] > 0:
+        return 3
+    return 4
+
+
+def _client_line(entry: dict) -> str:
+    """One-line mrkdwn rendering of a single client outlier row."""
+    parts = [
+        _status_emoji(entry["status"]),
+        f"`{entry['name']}`",
+        f"head `{entry['head_slot']}`",
+    ]
+    if entry["distance"] > 0:
+        parts.append(f"·  *{entry['distance']} behind*")
+    if not entry["is_canonical_fork"]:
+        parts.append("·  :fork_and_knife: non-canonical")
+    return "  ".join(parts)
+
+
+def _section(text: str) -> dict:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
+def _build_heartbeat(
     dora: DoraClient,
     cfg: Config,
-) -> str:
-    """Compose the heartbeat digest text.
+) -> tuple[list[dict], str]:
+    """Build a Block Kit heartbeat plus a plain-text fallback.
 
-    Makes two separate HTTP requests (client_head_forks + slots) so the head
-    slot shown and the missed/orphaned counts are sampled at slightly
-    different instants. They may disagree by a slot or two; this is by
+    Makes two separate HTTP requests (client_head_forks + slots), so the
+    head slot and the missed/orphaned counts are sampled at slightly
+    different instants. They may disagree by a slot or two; that's by
     design, not a bug.
     """
     payload = dora.client_head_forks()
@@ -247,48 +291,112 @@ def _format_heartbeat(
         elif st == "orphaned":
             orphaned += 1
 
-    lines: list[str] = []
-    lines.append(
-        f":bar_chart: *Heartbeat* — canonical head slot `{canonical_slot}` "
-        f"(`{canonical_root[:14]}…`), {len(forks)} active fork(s)"
+    label = f" — {cfg.network_label}" if cfg.network_label else ""
+    blocks: list[dict] = []
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"\U0001F4CA Heartbeat{label}"},
+    })
+
+    # Network summary section.
+    status_mix = "  ".join(
+        f"{_status_emoji(k)} {v}" for k, v in sorted(status_counts.items())
+    ) or "no clients"
+    root_short = f"`{canonical_root[:14]}…`" if canonical_root else "`?`"
+    summary_text = (
+        f"Canonical head: slot `{canonical_slot}`  ·  root {root_short}\n"
+        f"Active forks: *{len(forks)}*  ·  Status mix: {status_mix}"
     )
-    status_summary = ", ".join(f"{k}:{v}" for k, v in sorted(status_counts.items())) or "no clients"
-    lines.append(f"Network clients: {status_summary}")
+    blocks.append(_section(summary_text))
+    blocks.append({"type": "divider"})
 
+    # Matched (client_match) section.
     if matched:
-        lines.append(f"*{cfg.client_match}* ({len(matched)} matched):")
-        for e in sorted(matched, key=lambda x: x["name"]):
-            mark = "" if e["is_canonical_fork"] else " :fork_and_knife:"
-            lines.append(
-                f"  • `{e['name']}` status=`{e['status']}` head=`{e['head_slot']}` "
-                f"distance=`{e['distance']}`{mark}"
-            )
-        lines.append(
-            f"  proposals in last {window} slots: {total_matched_proposals} "
-            f"(missed={missed}, orphaned={orphaned})"
+        matched_sorted = sorted(matched, key=lambda x: (_health_rank(x), x["name"]))
+        matched_lines = [
+            f":rocket: *{cfg.client_match}* ({len(matched_sorted)} matched)"
+        ]
+        # Collapse the healthy bucket if every matched client is healthy.
+        healthy = [e for e in matched_sorted if _health_rank(e) == 4]
+        outliers = [e for e in matched_sorted if _health_rank(e) != 4]
+        for e in outliers:
+            matched_lines.append(_client_line(e))
+        if healthy:
+            if len(healthy) == len(matched_sorted):
+                names = ", ".join(f"`{e['name']}`" for e in healthy)
+                matched_lines.append(
+                    f"{_status_emoji('online')} *all online @ canonical* "
+                    f"({len(healthy)}): {names}"
+                )
+            else:
+                for e in healthy:
+                    matched_lines.append(_client_line(e))
+        matched_lines.append("")
+        matched_lines.append(
+            f"Proposals in last {window} slots: *{total_matched_proposals}*  "
+            f"(missed *{missed}*, orphaned *{orphaned}*)"
         )
+        blocks.append(_section("\n".join(matched_lines)))
     else:
-        lines.append(f"No clients matching `{cfg.client_match}` found.")
+        blocks.append(_section(f":mag: No clients matching `{cfg.client_match}` found."))
 
+    # Other clients section (collapsed healthy bucket + per-client outliers).
     mode = (cfg.heartbeat_other_clients or "summary").lower()
     if others and mode != "off":
-        if mode == "detailed":
-            lines.append(f"Other clients ({len(others)}):")
-            for e in sorted(others, key=lambda x: x["name"]):
-                mark = "" if e["is_canonical_fork"] else " :fork_and_knife:"
-                lines.append(
-                    f"  • `{e['name']}` status=`{e['status']}` head=`{e['head_slot']}` "
-                    f"distance=`{e['distance']}`{mark}"
-                )
-        else:
-            non_canonical = [e for e in others if not e["is_canonical_fork"]]
-            non_online = [e for e in others if e["status"] != "online"]
-            lines.append(
-                f"Other clients: {len(others)} total, "
-                f"{len(non_online)} non-online, {len(non_canonical)} off-canonical"
-            )
+        blocks.append({"type": "divider"})
+        others_sorted = sorted(others, key=lambda x: (_health_rank(x), x["name"]))
+        healthy = [e for e in others_sorted if _health_rank(e) == 4]
+        outliers = [e for e in others_sorted if _health_rank(e) != 4]
 
-    return "\n".join(lines)
+        lines = [f":desktop_computer: *Other clients* ({len(others_sorted)})"]
+        for e in outliers:
+            lines.append(_client_line(e))
+        if healthy:
+            if mode == "detailed":
+                names = ", ".join(f"`{e['name']}`" for e in healthy)
+                lines.append(
+                    f"{_status_emoji('online')} *online @ canonical* "
+                    f"({len(healthy)}): {names}"
+                )
+            else:  # summary
+                lines.append(
+                    f"{_status_emoji('online')} *online @ canonical*: "
+                    f"{len(healthy)} client(s)"
+                )
+        blocks.append(_section("\n".join(lines)))
+
+    # Footer context block (small grey).
+    footer = (
+        f"_Polling `{cfg.dora_url}` every {cfg.poll_interval}s · "
+        f"matching `{cfg.client_match}`_"
+    )
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
+
+    # Plain-text fallback for notifications / non-Block-Kit clients.
+    fb_status_mix = ", ".join(f"{k}:{v}" for k, v in sorted(status_counts.items())) or "no clients"
+    fb_lines = [
+        f"Heartbeat — canonical head {canonical_slot} ({len(forks)} fork(s), {fb_status_mix})",
+    ]
+    if matched:
+        unhealthy_matched = sum(1 for e in matched if _health_rank(e) != 4)
+        if unhealthy_matched == 0:
+            fb_lines.append(
+                f"{cfg.client_match}: {len(matched)} client(s) all healthy @ {canonical_slot}; "
+                f"{total_matched_proposals} proposals (missed {missed}, orphan {orphaned})"
+            )
+        else:
+            fb_lines.append(
+                f"{cfg.client_match}: {unhealthy_matched}/{len(matched)} unhealthy; "
+                f"{total_matched_proposals} proposals (missed {missed}, orphan {orphaned})"
+            )
+    if others:
+        unhealthy_others = sum(1 for e in others if _health_rank(e) != 4)
+        fb_lines.append(
+            f"others: {len(others) - unhealthy_others}/{len(others)} healthy"
+        )
+    fallback = "\n".join(fb_lines)
+
+    return blocks, fallback
 
 
 def maybe_heartbeat(
@@ -304,11 +412,11 @@ def maybe_heartbeat(
     if state.last_heartbeat_ts > 0 and (now - state.last_heartbeat_ts) < interval_s:
         return
     try:
-        text = _format_heartbeat(dora, cfg)
+        blocks, fallback = _build_heartbeat(dora, cfg)
     except Exception as e:
         log.exception("heartbeat compose failed: %s", e)
         return
-    slack.send(text)
+    slack.send_blocks(blocks, fallback)
     state.last_heartbeat_ts = now
 
 

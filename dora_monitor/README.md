@@ -46,6 +46,8 @@ The process holds dedup state in `state_file` so restarts don't re-alert on alre
 
 Recoveries (fork resolved, caught up, back online) are posted as well.
 
+The periodic heartbeat digest uses Slack Block Kit (`{"blocks": [...]}`) with a plain-text fallback for notifications. Action alerts (offline / fork / lag / version change / missed-block) use plain mrkdwn `text` posts. Clients with status `online`, on the canonical fork, and at `distance == 0` from canonical head collapse into a single "online @ canonical" bucket so the digest highlights outliers instead of repeating identical rows; use `heartbeat_other_clients: detailed` (default) to list the healthy names, `summary` for just a count, or `off` to drop the section entirely.
+
 ## A note on what "client" means here
 
 `/api/v1/network/client_head_forks` lists Dora's **beacon (CL)** clients; their names embed the paired EL (e.g. `lighthouse-ethrex-1` is the Lighthouse beacon paired with an ethrex EL). So the offline / fork / lag signals are observed on the beacon side. An ethrex-EL crash shows up indirectly: the paired beacon's head stops advancing (sync_lag) or its status flips to non-online (offline).
