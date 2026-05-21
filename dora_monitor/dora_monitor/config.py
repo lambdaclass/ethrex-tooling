@@ -29,7 +29,7 @@ class Config:
     state_file: str | None = "./dora_monitor_state.json"
     http_timeout: int = 10
     debug: bool = False
-    heartbeat_interval_minutes: int = 180  # 3 hours; set 0 to disable
+    heartbeat_interval_minutes: int = 360  # 6 hours; set 0 to disable
     heartbeat_slot_window: int = 256
     # "off" (skip), "summary" (one-line aggregate), "detailed" (per-client list)
     heartbeat_other_clients: str = "detailed"
