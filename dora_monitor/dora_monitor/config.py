@@ -22,6 +22,10 @@ class Config:
     poll_interval: int = 30
     slot_scan_limit: int = 64
     sync_lag_threshold: int = 16
+    # Number of consecutive polls a matched client must be on a non-canonical
+    # head before we fire a fork alert. Filters out propagation-timing noise
+    # where one client briefly leads or lags by a slot or two.
+    fork_confirm_ticks: int = 3
     state_file: str | None = "./dora_monitor_state.json"
     http_timeout: int = 10
     debug: bool = False

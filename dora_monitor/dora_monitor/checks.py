@@ -75,6 +75,7 @@ def check_client_head_forks(
     state.last_known_head = max(state.last_known_head, canonical_slot)
 
     current_forked: set[str] = set()
+    forked_candidates: set[str] = set()
     current_lagging: set[str] = set()
     current_offline: set[str] = set()
     matched_clients: dict[str, dict] = {}
@@ -110,7 +111,7 @@ def check_client_head_forks(
                 continue
 
             if cfg.checks.forks and not is_canonical:
-                current_forked.add(name)
+                forked_candidates.add(name)
 
             if cfg.checks.sync_lag:
                 distance = canonical_slot - client_head
@@ -131,6 +132,24 @@ def check_client_head_forks(
         state.offline_clients = current_offline
 
     if cfg.checks.forks:
+        # Bump the consecutive-tick counter for clients seen on a
+        # non-canonical fork this tick; reset for everyone else. Only treat
+        # a client as truly forked once the counter crosses fork_confirm_ticks
+        # to filter propagation-timing noise (1-2 slot jitter that resolves
+        # within a poll or two).
+        threshold = max(cfg.fork_confirm_ticks, 1)
+        seen_matched = set(matched_clients.keys())
+        for name in list(state.pending_fork_ticks.keys()):
+            if name not in seen_matched:
+                # Client vanished from the payload (lost from network view);
+                # drop the pending counter so it doesn't persist forever.
+                del state.pending_fork_ticks[name]
+        for name in forked_candidates:
+            state.pending_fork_ticks[name] = state.pending_fork_ticks.get(name, 0) + 1
+        for name in seen_matched - forked_candidates:
+            state.pending_fork_ticks.pop(name, None)
+        current_forked = {n for n, c in state.pending_fork_ticks.items() if c >= threshold}
+
         new_forked = current_forked - state.forked_clients
         resolved_forked = state.forked_clients - current_forked
         for name in sorted(new_forked):

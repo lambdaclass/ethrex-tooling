@@ -13,6 +13,9 @@ class State:
     offline_clients: set[str] = field(default_factory=set)
     lagging_clients: set[str] = field(default_factory=set)
     forked_clients: set[str] = field(default_factory=set)
+    # Per-client consecutive non-canonical observations. Used to require
+    # N ticks of confirmation before firing a fork alert.
+    pending_fork_ticks: dict[str, int] = field(default_factory=dict)
     last_known_head: int = 0
     last_heartbeat_ts: float = 0.0
     client_versions: dict[str, str] = field(default_factory=dict)
@@ -40,6 +43,7 @@ class State:
             last_known_head=int(d.get("last_known_head", 0)),
             last_heartbeat_ts=float(d.get("last_heartbeat_ts", 0.0)),
             client_versions=dict(d.get("client_versions", {})),
+            pending_fork_ticks={k: int(v) for k, v in (d.get("pending_fork_ticks") or {}).items()},
         )
 
 

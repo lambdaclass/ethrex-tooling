@@ -20,6 +20,12 @@ slot_scan_limit: 64
 # Sync lag threshold (slots behind the canonical head) before alerting.
 sync_lag_threshold: 16
 
+# Number of consecutive polls a matched client must be on a non-canonical
+# head before we fire a fork alert. Filters propagation-timing jitter
+# (1-2 slot leads/lags that self-resolve in the next poll). With
+# poll_interval=30, fork_confirm_ticks=3 = ~90s of confirmation.
+fork_confirm_ticks: 3
+
 # Path for persisted dedup state. Use null for in-memory only.
 state_file: "./dora_monitor_state.json"
 
