@@ -6,7 +6,13 @@ dora_url: "https://dora.bal-devnet-7.ethpandaops.io"
 client_match: "ethrex"
 
 # Slack incoming webhook URL. Can also be set via SLACK_WEBHOOK_URL env var.
+# Leave empty to disable Slack delivery.
 slack_webhook_url: ""
+
+# Discord webhook URL. Can also be set via DISCORD_WEBHOOK_URL env var.
+# Leave empty to disable Discord delivery. At least one of slack / discord
+# must be configured (unless --dry-run).
+discord_webhook_url: ""
 
 # Optional label shown in alert headers (e.g. network name).
 network_label: "bal-devnet-7"

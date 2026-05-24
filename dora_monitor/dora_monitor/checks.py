@@ -1,10 +1,11 @@
 import logging
 import time
 from collections import Counter
+from dataclasses import dataclass, field
 
 from dora_monitor.config import Config
 from dora_monitor.dora import DoraClient
-from dora_monitor.slack import SlackNotifier
+from dora_monitor.notify import Notifier
 from dora_monitor.state import State
 
 log = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ def _matches(name: str | None, needle: str) -> bool:
 
 def check_missed_blocks(
     dora: DoraClient,
-    slack: SlackNotifier,
+    notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
@@ -31,13 +32,13 @@ def check_missed_blocks(
         status = (s.get("status") or "").lower()
         if status == "missing" and slot_num not in state.reported_missed_slots:
             state.reported_missed_slots.add(slot_num)
-            slack.send(
+            notifier.send(
                 f":warning: *Missed block* — slot `{slot_num}` "
                 f"(epoch {s.get('epoch')}) proposer `{proposer_name}` (idx {s.get('proposer')})"
             )
         elif status == "orphaned" and slot_num not in state.reported_orphan_slots:
             state.reported_orphan_slots.add(slot_num)
-            slack.send(
+            notifier.send(
                 f":warning: *Orphaned block* — slot `{slot_num}` "
                 f"(epoch {s.get('epoch')}) proposer `{proposer_name}` (idx {s.get('proposer')})"
             )
@@ -45,7 +46,7 @@ def check_missed_blocks(
 
 def check_client_head_forks(
     dora: DoraClient,
-    slack: SlackNotifier,
+    notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
@@ -124,11 +125,11 @@ def check_client_head_forks(
         for name in sorted(new_offline):
             info = matched_clients.get(name, {})
             extra = f" (last_error: {info['last_error']})" if info.get("last_error") else ""
-            slack.send(
+            notifier.send(
                 f":red_circle: *Client offline* — `{name}` status=`{info.get('status') or 'missing'}`{extra}"
             )
         for name in sorted(recovered_offline):
-            slack.send(f":large_green_circle: *Client back online* — `{name}` is online again")
+            notifier.send(f":large_green_circle: *Client back online* — `{name}` is online again")
         state.offline_clients = current_offline
 
     if cfg.checks.forks:
@@ -154,13 +155,13 @@ def check_client_head_forks(
         resolved_forked = state.forked_clients - current_forked
         for name in sorted(new_forked):
             info = matched_clients.get(name, {})
-            slack.send(
+            notifier.send(
                 f":fork_and_knife: *Fork detected* — `{name}` head "
                 f"`{info.get('head_root', '?')[:14]}…` at slot `{info.get('head_slot')}` "
                 f"is not on canonical (`{canonical_root[:14]}…` at `{canonical_slot}`)"
             )
         for name in sorted(resolved_forked):
-            slack.send(f":white_check_mark: *Fork resolved* — `{name}` is back on canonical head")
+            notifier.send(f":white_check_mark: *Fork resolved* — `{name}` is back on canonical head")
         state.forked_clients = current_forked
 
     if cfg.checks.sync_lag:
@@ -169,18 +170,18 @@ def check_client_head_forks(
         for name in sorted(new_lagging):
             info = matched_clients.get(name, {})
             distance = canonical_slot - int(info.get("head_slot") or 0)
-            slack.send(
+            notifier.send(
                 f":turtle: *Sync lag* — `{name}` is `{distance}` slots behind "
                 f"(client head `{info.get('head_slot')}`, canonical `{canonical_slot}`)"
             )
         for name in sorted(recovered_lagging):
-            slack.send(f":zap: *Sync caught up* — `{name}` is back in range of head")
+            notifier.send(f":zap: *Sync caught up* — `{name}` is back in range of head")
         state.lagging_clients = current_lagging
 
 
 def check_version_drift(
     dora: DoraClient,
-    slack: SlackNotifier,
+    notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
@@ -199,7 +200,7 @@ def check_version_drift(
             state.client_versions[name] = version
             continue
         if prev != version:
-            slack.send(
+            notifier.send(
                 f":package: *Version change* — `{name}`\n"
                 f"  was: `{prev}`\n"
                 f"  now: `{version}`"
@@ -207,16 +208,27 @@ def check_version_drift(
             state.client_versions[name] = version
 
 
-_STATUS_EMOJI = {
+_STATUS_EMOJI_SLACK = {
     "online": ":large_green_circle:",
     "synchronizing": ":large_yellow_circle:",
     "optimistic": ":large_orange_circle:",
     "offline": ":red_circle:",
 }
 
+_STATUS_EMOJI_UNICODE = {
+    "online": "\U0001f7e2",
+    "synchronizing": "\U0001f7e1",
+    "optimistic": "\U0001f7e0",
+    "offline": "\U0001f534",
+}
 
-def _status_emoji(status: str) -> str:
-    return _STATUS_EMOJI.get(status, ":white_circle:")
+
+def _status_emoji_slack(status: str) -> str:
+    return _STATUS_EMOJI_SLACK.get(status, ":white_circle:")
+
+
+def _status_emoji_unicode(status: str) -> str:
+    return _STATUS_EMOJI_UNICODE.get(status, "⚪")
 
 
 def _health_rank(entry: dict) -> int:
@@ -233,10 +245,9 @@ def _health_rank(entry: dict) -> int:
     return 4
 
 
-def _client_line(entry: dict) -> str:
-    """One-line mrkdwn rendering of a single client outlier row."""
+def _client_line_slack(entry: dict) -> str:
     parts = [
-        _status_emoji(entry["status"]),
+        _status_emoji_slack(entry["status"]),
         f"`{entry['name']}`",
         f"head `{entry['head_slot']}`",
     ]
@@ -247,36 +258,55 @@ def _client_line(entry: dict) -> str:
     return "  ".join(parts)
 
 
+def _client_line_discord(entry: dict) -> str:
+    parts = [
+        _status_emoji_unicode(entry["status"]),
+        f"`{entry['name']}`",
+        f"head `{entry['head_slot']}`",
+    ]
+    if entry["distance"] > 0:
+        parts.append(f"·  **{entry['distance']} behind**")
+    if not entry["is_canonical_fork"]:
+        parts.append("·  \U0001f374 non-canonical")
+    return "  ".join(parts)
+
+
 def _section(text: str) -> dict:
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
-def _build_heartbeat(
-    dora: DoraClient,
-    cfg: Config,
-) -> tuple[list[dict], str]:
-    """Build a Block Kit heartbeat plus a plain-text fallback.
+@dataclass
+class HeartbeatData:
+    forks: list = field(default_factory=list)
+    canonical_slot: int = 0
+    canonical_root: str = ""
+    matched: list[dict] = field(default_factory=list)
+    others: list[dict] = field(default_factory=list)
+    status_counts: Counter = field(default_factory=Counter)
+    window: int = 0
+    missed: int = 0
+    orphaned: int = 0
+    total_matched_proposals: int = 0
 
-    Makes two separate HTTP requests (client_head_forks + slots), so the
-    head slot and the missed/orphaned counts are sampled at slightly
-    different instants. They may disagree by a slot or two; that's by
-    design, not a bug.
+
+def _gather_heartbeat(dora: DoraClient, cfg: Config) -> HeartbeatData:
+    """Fetch the data behind the periodic heartbeat digest.
+
+    Two separate HTTP requests (client_head_forks + slots), so head slot and
+    missed/orphan counts are sampled at slightly different instants. They may
+    disagree by a slot or two; that's by design.
     """
     payload = dora.client_head_forks()
     forks = payload.get("forks") or []
-    canonical_slot = 0
-    canonical_root = ""
+    data = HeartbeatData(forks=forks)
     if forks:
         canonical = max(
             forks,
             key=lambda f: (len(f.get("clients") or []), int(f.get("head_slot", 0))),
         )
-        canonical_slot = int(canonical.get("head_slot", 0))
-        canonical_root = canonical.get("head_root", "")
+        data.canonical_slot = int(canonical.get("head_slot", 0))
+        data.canonical_root = canonical.get("head_root", "")
 
-    matched: list[dict] = []
-    others: list[dict] = []
-    status_counts: Counter[str] = Counter()
     for fork in forks:
         for client in fork.get("clients") or []:
             name = client.get("name") or ""
@@ -285,31 +315,55 @@ def _build_heartbeat(
                 "name": name,
                 "status": status,
                 "head_slot": int(client.get("head_slot") or 0),
-                "distance": canonical_slot - int(client.get("head_slot") or 0),
-                "is_canonical_fork": fork.get("head_root", "") == canonical_root,
+                "distance": data.canonical_slot - int(client.get("head_slot") or 0),
+                "is_canonical_fork": fork.get("head_root", "") == data.canonical_root,
             }
-            status_counts[status] += 1
+            data.status_counts[status] += 1
             if _matches(name, cfg.client_match):
-                matched.append(entry)
+                data.matched.append(entry)
             else:
-                others.append(entry)
+                data.others.append(entry)
 
-    # Missed / orphan counts within the recent slot window for client_match.
-    window = max(cfg.heartbeat_slot_window, 1)
-    slots = dora.slots(limit=window, with_orphaned=1, with_missing=1)
-    missed = 0
-    orphaned = 0
-    total_matched_proposals = 0
+    data.window = max(cfg.heartbeat_slot_window, 1)
+    slots = dora.slots(limit=data.window, with_orphaned=1, with_missing=1)
     for s in slots:
         if not _matches(s.get("proposer_name") or "", cfg.client_match):
             continue
-        total_matched_proposals += 1
+        data.total_matched_proposals += 1
         st = (s.get("status") or "").lower()
         if st == "missing":
-            missed += 1
+            data.missed += 1
         elif st == "orphaned":
-            orphaned += 1
+            data.orphaned += 1
+    return data
 
+
+def _build_fallback(data: HeartbeatData, cfg: Config) -> str:
+    fb_status_mix = ", ".join(f"{k}:{v}" for k, v in sorted(data.status_counts.items())) or "no clients"
+    lines = [
+        f"Heartbeat — canonical head {data.canonical_slot} ({len(data.forks)} fork(s), {fb_status_mix})",
+    ]
+    if data.matched:
+        unhealthy = sum(1 for e in data.matched if _health_rank(e) != 4)
+        if unhealthy == 0:
+            lines.append(
+                f"{cfg.client_match}: {len(data.matched)} client(s) all healthy @ {data.canonical_slot}; "
+                f"{data.total_matched_proposals} proposals (missed {data.missed}, orphan {data.orphaned})"
+            )
+        else:
+            lines.append(
+                f"{cfg.client_match}: {unhealthy}/{len(data.matched)} unhealthy; "
+                f"{data.total_matched_proposals} proposals (missed {data.missed}, orphan {data.orphaned})"
+            )
+    if data.others:
+        unhealthy_others = sum(1 for e in data.others if _health_rank(e) != 4)
+        lines.append(
+            f"others: {len(data.others) - unhealthy_others}/{len(data.others)} healthy"
+        )
+    return "\n".join(lines)
+
+
+def _build_slack_heartbeat(data: HeartbeatData, cfg: Config) -> list[dict]:
     label = f" — {cfg.network_label}" if cfg.network_label else ""
     blocks: list[dict] = []
     blocks.append({
@@ -317,110 +371,182 @@ def _build_heartbeat(
         "text": {"type": "plain_text", "text": f"\U0001F4CA Heartbeat{label}"},
     })
 
-    # Network summary section.
     status_mix = "  ".join(
-        f"{_status_emoji(k)} {v}" for k, v in sorted(status_counts.items())
+        f"{_status_emoji_slack(k)} {v}" for k, v in sorted(data.status_counts.items())
     ) or "no clients"
-    root_short = f"`{canonical_root[:14]}…`" if canonical_root else "`?`"
+    root_short = f"`{data.canonical_root[:14]}…`" if data.canonical_root else "`?`"
     summary_text = (
-        f"Canonical head: slot `{canonical_slot}`  ·  root {root_short}\n"
-        f"Active forks: *{len(forks)}*  ·  Status mix: {status_mix}"
+        f"Canonical head: slot `{data.canonical_slot}`  ·  root {root_short}\n"
+        f"Active forks: *{len(data.forks)}*  ·  Status mix: {status_mix}"
     )
     blocks.append(_section(summary_text))
     blocks.append({"type": "divider"})
 
-    # Matched (client_match) section.
-    if matched:
-        matched_sorted = sorted(matched, key=lambda x: (_health_rank(x), x["name"]))
+    if data.matched:
+        matched_sorted = sorted(data.matched, key=lambda x: (_health_rank(x), x["name"]))
         matched_lines = [
             f":rocket: *{cfg.client_match}* ({len(matched_sorted)} matched)"
         ]
-        # Collapse the healthy bucket if every matched client is healthy.
         healthy = [e for e in matched_sorted if _health_rank(e) == 4]
         outliers = [e for e in matched_sorted if _health_rank(e) != 4]
         for e in outliers:
-            matched_lines.append(_client_line(e))
+            matched_lines.append(_client_line_slack(e))
         if healthy:
             if len(healthy) == len(matched_sorted):
                 names = ", ".join(f"`{e['name']}`" for e in healthy)
                 matched_lines.append(
-                    f"{_status_emoji('online')} *all online @ canonical* "
+                    f"{_status_emoji_slack('online')} *all online @ canonical* "
                     f"({len(healthy)}): {names}"
                 )
             else:
                 for e in healthy:
-                    matched_lines.append(_client_line(e))
+                    matched_lines.append(_client_line_slack(e))
         matched_lines.append("")
         matched_lines.append(
-            f"Proposals in last {window} slots: *{total_matched_proposals}*  "
-            f"(missed *{missed}*, orphaned *{orphaned}*)"
+            f"Proposals in last {data.window} slots: *{data.total_matched_proposals}*  "
+            f"(missed *{data.missed}*, orphaned *{data.orphaned}*)"
         )
         blocks.append(_section("\n".join(matched_lines)))
     else:
         blocks.append(_section(f":mag: No clients matching `{cfg.client_match}` found."))
 
-    # Other clients section (collapsed healthy bucket + per-client outliers).
     mode = (cfg.heartbeat_other_clients or "summary").lower()
-    if others and mode != "off":
+    if data.others and mode != "off":
         blocks.append({"type": "divider"})
-        others_sorted = sorted(others, key=lambda x: (_health_rank(x), x["name"]))
+        others_sorted = sorted(data.others, key=lambda x: (_health_rank(x), x["name"]))
         healthy = [e for e in others_sorted if _health_rank(e) == 4]
         outliers = [e for e in others_sorted if _health_rank(e) != 4]
 
         lines = [f":desktop_computer: *Other clients* ({len(others_sorted)})"]
         for e in outliers:
-            lines.append(_client_line(e))
+            lines.append(_client_line_slack(e))
         if healthy:
             if mode == "detailed":
                 names = ", ".join(f"`{e['name']}`" for e in healthy)
                 lines.append(
-                    f"{_status_emoji('online')} *online @ canonical* "
+                    f"{_status_emoji_slack('online')} *online @ canonical* "
                     f"({len(healthy)}): {names}"
                 )
-            else:  # summary
+            else:
                 lines.append(
-                    f"{_status_emoji('online')} *online @ canonical*: "
+                    f"{_status_emoji_slack('online')} *online @ canonical*: "
                     f"{len(healthy)} client(s)"
                 )
         blocks.append(_section("\n".join(lines)))
 
-    # Footer context block (small grey).
     footer = (
         f"_Polling `{cfg.dora_url}` every {cfg.poll_interval}s · "
         f"matching `{cfg.client_match}`_"
     )
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
+    return blocks
 
-    # Plain-text fallback for notifications / non-Block-Kit clients.
-    fb_status_mix = ", ".join(f"{k}:{v}" for k, v in sorted(status_counts.items())) or "no clients"
-    fb_lines = [
-        f"Heartbeat — canonical head {canonical_slot} ({len(forks)} fork(s), {fb_status_mix})",
-    ]
-    if matched:
-        unhealthy_matched = sum(1 for e in matched if _health_rank(e) != 4)
-        if unhealthy_matched == 0:
-            fb_lines.append(
-                f"{cfg.client_match}: {len(matched)} client(s) all healthy @ {canonical_slot}; "
-                f"{total_matched_proposals} proposals (missed {missed}, orphan {orphaned})"
-            )
-        else:
-            fb_lines.append(
-                f"{cfg.client_match}: {unhealthy_matched}/{len(matched)} unhealthy; "
-                f"{total_matched_proposals} proposals (missed {missed}, orphan {orphaned})"
-            )
-    if others:
-        unhealthy_others = sum(1 for e in others if _health_rank(e) != 4)
-        fb_lines.append(
-            f"others: {len(others) - unhealthy_others}/{len(others)} healthy"
+
+def _heartbeat_color(data: HeartbeatData) -> int:
+    """Embed sidebar color: red = matched-offline, yellow = matched-degraded,
+    green = all matched healthy, blue = no matched clients."""
+    if not data.matched:
+        return 0x3498DB
+    ranks = [_health_rank(e) for e in data.matched]
+    if any(r == 0 for r in ranks):
+        return 0xE74C3C
+    if any(r < 4 for r in ranks):
+        return 0xF1C40F
+    return 0x2ECC71
+
+
+def _field(name: str, value: str) -> dict:
+    # Discord caps field value at 1024 chars; truncate rather than 400-ing.
+    if len(value) > 1024:
+        value = value[:1020] + "…"
+    return {"name": name, "value": value, "inline": False}
+
+
+def _build_discord_heartbeat(data: HeartbeatData, cfg: Config) -> dict:
+    label = f" — {cfg.network_label}" if cfg.network_label else ""
+
+    status_mix = "  ".join(
+        f"{_status_emoji_unicode(k)} {v}" for k, v in sorted(data.status_counts.items())
+    ) or "no clients"
+    root_short = f"`{data.canonical_root[:14]}…`" if data.canonical_root else "`?`"
+    description = (
+        f"Canonical head: slot `{data.canonical_slot}`  ·  root {root_short}\n"
+        f"Active forks: **{len(data.forks)}**  ·  Status mix: {status_mix}"
+    )
+
+    fields: list[dict] = []
+    if data.matched:
+        matched_sorted = sorted(data.matched, key=lambda x: (_health_rank(x), x["name"]))
+        healthy = [e for e in matched_sorted if _health_rank(e) == 4]
+        outliers = [e for e in matched_sorted if _health_rank(e) != 4]
+        lines: list[str] = []
+        for e in outliers:
+            lines.append(_client_line_discord(e))
+        if healthy:
+            if len(healthy) == len(matched_sorted):
+                names = ", ".join(f"`{e['name']}`" for e in healthy)
+                lines.append(
+                    f"{_status_emoji_unicode('online')} **all online @ canonical** "
+                    f"({len(healthy)}): {names}"
+                )
+            else:
+                for e in healthy:
+                    lines.append(_client_line_discord(e))
+        lines.append("")
+        lines.append(
+            f"Proposals in last {data.window} slots: **{data.total_matched_proposals}**  "
+            f"(missed **{data.missed}**, orphaned **{data.orphaned}**)"
         )
-    fallback = "\n".join(fb_lines)
+        fields.append(_field(
+            f"\U0001f680 {cfg.client_match} ({len(matched_sorted)} matched)",
+            "\n".join(lines),
+        ))
+    else:
+        fields.append(_field(
+            "\U0001f50d Matched",
+            f"No clients matching `{cfg.client_match}` found.",
+        ))
 
-    return blocks, fallback
+    mode = (cfg.heartbeat_other_clients or "summary").lower()
+    if data.others and mode != "off":
+        others_sorted = sorted(data.others, key=lambda x: (_health_rank(x), x["name"]))
+        healthy = [e for e in others_sorted if _health_rank(e) == 4]
+        outliers = [e for e in others_sorted if _health_rank(e) != 4]
+        lines = []
+        for e in outliers:
+            lines.append(_client_line_discord(e))
+        if healthy:
+            if mode == "detailed":
+                names = ", ".join(f"`{e['name']}`" for e in healthy)
+                lines.append(
+                    f"{_status_emoji_unicode('online')} **online @ canonical** "
+                    f"({len(healthy)}): {names}"
+                )
+            else:
+                lines.append(
+                    f"{_status_emoji_unicode('online')} **online @ canonical**: "
+                    f"{len(healthy)} client(s)"
+                )
+        fields.append(_field(
+            f"\U0001f5a5️ Other clients ({len(others_sorted)})",
+            "\n".join(lines) or "—",
+        ))
+
+    footer_text = (
+        f"Polling {cfg.dora_url} every {cfg.poll_interval}s · matching {cfg.client_match}"
+    )
+    return {
+        "title": f"\U0001F4CA Heartbeat{label}",
+        "description": description,
+        "color": _heartbeat_color(data),
+        "fields": fields,
+        "footer": {"text": footer_text},
+    }
 
 
 def maybe_heartbeat(
     dora: DoraClient,
-    slack: SlackNotifier,
+    notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
@@ -431,38 +557,41 @@ def maybe_heartbeat(
     if state.last_heartbeat_ts > 0 and (now - state.last_heartbeat_ts) < interval_s:
         return
     try:
-        blocks, fallback = _build_heartbeat(dora, cfg)
+        data = _gather_heartbeat(dora, cfg)
+        blocks = _build_slack_heartbeat(data, cfg)
+        embed = _build_discord_heartbeat(data, cfg)
+        fallback = _build_fallback(data, cfg)
     except Exception as e:
         log.exception("heartbeat compose failed: %s", e)
         return
-    slack.send_blocks(blocks, fallback)
+    notifier.send_heartbeat(blocks, embed, fallback)
     state.last_heartbeat_ts = now
 
 
 def run_checks(
     dora: DoraClient,
-    slack: SlackNotifier,
+    notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
     if cfg.checks.missed_blocks:
         try:
-            check_missed_blocks(dora, slack, cfg, state)
+            check_missed_blocks(dora, notifier, cfg, state)
         except Exception as e:
             log.exception("missed_blocks check failed: %s", e)
     if cfg.checks.forks or cfg.checks.sync_lag or cfg.checks.offline:
         try:
-            check_client_head_forks(dora, slack, cfg, state)
+            check_client_head_forks(dora, notifier, cfg, state)
         except Exception as e:
             log.exception("client_head_forks check failed: %s", e)
     if cfg.checks.version_drift:
         try:
-            check_version_drift(dora, slack, cfg, state)
+            check_version_drift(dora, notifier, cfg, state)
         except Exception as e:
             log.exception("version_drift check failed: %s", e)
 
     try:
-        maybe_heartbeat(dora, slack, cfg, state)
+        maybe_heartbeat(dora, notifier, cfg, state)
     except Exception as e:
         log.exception("heartbeat failed: %s", e)
 

@@ -6,7 +6,9 @@ import time
 
 from dora_monitor.checks import run_checks
 from dora_monitor.config import load_config
+from dora_monitor.discord import DiscordNotifier
 from dora_monitor.dora import DoraClient
+from dora_monitor.notify import Notifier
 from dora_monitor.slack import SlackNotifier
 from dora_monitor.state import load_state, save_state
 
@@ -23,35 +25,38 @@ def _setup_logging(debug: bool) -> None:
 def cli() -> None:
     parser = argparse.ArgumentParser(
         prog="dora-monitor",
-        description="Monitor a Dora explorer for client-specific issues and alert to Slack.",
+        description="Monitor a Dora explorer for client-specific issues and alert to Slack and/or Discord.",
     )
     parser.add_argument("-c", "--config", required=True, help="Path to YAML config file")
     parser.add_argument("--once", action="store_true", help="Run a single check tick and exit")
-    parser.add_argument("--dry-run", action="store_true", help="Print alerts instead of posting to Slack (no webhook needed)")
+    parser.add_argument("--dry-run", action="store_true", help="Print alerts instead of posting (no webhook needed)")
     parser.add_argument("--reset-state", action="store_true", help="Ignore the persisted state file (force re-alerting)")
     parser.add_argument("--debug", action="store_true", help="Verbose logging")
     parser.add_argument("--force-heartbeat", action="store_true", help="Post a heartbeat digest on the first tick regardless of interval")
     args = parser.parse_args()
 
-    cfg = load_config(args.config, require_slack=not args.dry_run)
+    cfg = load_config(args.config, require_webhook=not args.dry_run)
     if args.debug:
         cfg.debug = True
     _setup_logging(cfg.debug)
 
     dora = DoraClient(cfg.dora_url, timeout=cfg.http_timeout)
-    slack = SlackNotifier(cfg.slack_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
-    if args.dry_run:
-        import json as _json
-        prefix = slack._prefix()
-        def _dry_send(text: str) -> None:
-            print(f"[DRY-RUN] {prefix}{text}")
-        def _dry_send_blocks(blocks: list, fallback: str) -> None:
-            print(f"[DRY-RUN] {prefix}{fallback}")
-            if args.debug:
-                print("[DRY-RUN blocks JSON]")
-                print(_json.dumps(blocks, indent=2))
-        slack.send = _dry_send  # type: ignore[assignment]
-        slack.send_blocks = _dry_send_blocks  # type: ignore[assignment]
+
+    slack = (
+        SlackNotifier(cfg.slack_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
+        if cfg.slack_webhook_url else None
+    )
+    discord = (
+        DiscordNotifier(cfg.discord_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
+        if cfg.discord_webhook_url else None
+    )
+    notifier = Notifier(
+        slack=slack,
+        discord=discord,
+        network_label=cfg.network_label,
+        dry_run=args.dry_run,
+        dry_debug=cfg.debug,
+    )
 
     state = load_state(None if args.reset_state else cfg.state_file)
     if args.dry_run:
@@ -72,16 +77,20 @@ def cli() -> None:
     signal.signal(signal.SIGINT, _signal)
     signal.signal(signal.SIGTERM, _signal)
 
+    targets = ", ".join(
+        n for n in (("slack" if slack else None), ("discord" if discord else None)) if n
+    ) or ("dry-run" if args.dry_run else "none")
     log.info(
-        "monitoring %s for clients matching %r every %ds",
+        "monitoring %s for clients matching %r every %ds (notify: %s)",
         cfg.dora_url,
         cfg.client_match,
         cfg.poll_interval,
+        targets,
     )
 
     while not stop["flag"]:
         try:
-            run_checks(dora, slack, cfg, state)
+            run_checks(dora, notifier, cfg, state)
         except Exception as e:
             log.exception("tick failed: %s", e)
         save_state(cfg.state_file, state)

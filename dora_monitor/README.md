@@ -1,6 +1,6 @@
 # dora_monitor
 
-Polls a [Dora explorer](https://github.com/ethpandaops/dora) API and posts Slack alerts when a specific client (e.g. `ethrex`) misses a block, orphans a block, drifts onto a fork, falls behind the canonical head, or drops offline.
+Polls a [Dora explorer](https://github.com/ethpandaops/dora) API and posts Slack and/or Discord alerts when a specific client (e.g. `ethrex`) misses a block, orphans a block, drifts onto a fork, falls behind the canonical head, or drops offline.
 
 ## Install
 
@@ -12,7 +12,7 @@ pip install -e .
 
 ## Configure
 
-Copy `config.example.yaml` and edit it; the only mandatory fields are `dora_url`, `client_match`, and the Slack webhook (which can come from `SLACK_WEBHOOK_URL` instead).
+Copy `config.example.yaml` and edit it; the mandatory fields are `dora_url`, `client_match`, and at least one webhook (`slack_webhook_url` or `discord_webhook_url`; either can come from the `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` env var instead). Both may be set, in which case every alert and heartbeat is fanned out to each.
 
 ```bash
 cp config.example.yaml config.yaml
@@ -46,7 +46,7 @@ The process holds dedup state in `state_file` so restarts don't re-alert on alre
 
 Recoveries (fork resolved, caught up, back online) are posted as well.
 
-The periodic heartbeat digest uses Slack Block Kit (`{"blocks": [...]}`) with a plain-text fallback for notifications. Action alerts (offline / fork / lag / version change / missed-block) use plain mrkdwn `text` posts. Clients with status `online`, on the canonical fork, and at `distance == 0` from canonical head collapse into a single "online @ canonical" bucket so the digest highlights outliers instead of repeating identical rows; use `heartbeat_other_clients: detailed` (default) to list the healthy names, `summary` for just a count, or `off` to drop the section entirely.
+The periodic heartbeat digest uses Slack Block Kit (`{"blocks": [...]}`) on Slack and a rich embed on Discord, both built from the same gathered data plus a shared plain-text fallback. Action alerts (offline / fork / lag / version change / missed-block) use plain mrkdwn `text` posts on Slack; the same strings are run through a mrkdwn→Discord-markdown translator (single-asterisk bold → double, `:shortcode:` emoji → unicode) before being posted to Discord. Clients with status `online`, on the canonical fork, and at `distance == 0` from canonical head collapse into a single "online @ canonical" bucket so the digest highlights outliers instead of repeating identical rows; use `heartbeat_other_clients: detailed` (default) to list the healthy names, `summary` for just a count, or `off` to drop the section entirely.
 
 ## A note on what "client" means here
 

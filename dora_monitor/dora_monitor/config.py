@@ -18,6 +18,7 @@ class Config:
     dora_url: str
     client_match: str = "ethrex"
     slack_webhook_url: str = ""
+    discord_webhook_url: str = ""
     network_label: str = ""
     poll_interval: int = 30
     slot_scan_limit: int = 64
@@ -36,7 +37,7 @@ class Config:
     checks: Checks = field(default_factory=Checks)
 
 
-def load_config(path: str, require_slack: bool = True) -> Config:
+def load_config(path: str, require_webhook: bool = True) -> Config:
     with open(path, "r") as f:
         raw = yaml.safe_load(f) or {}
 
@@ -51,15 +52,21 @@ def load_config(path: str, require_slack: bool = True) -> Config:
     except TypeError as e:
         raise ValueError(f"config: unknown top-level key ({e})") from e
 
-    env_hook = os.environ.get("SLACK_WEBHOOK_URL")
-    if env_hook:
-        cfg.slack_webhook_url = env_hook
+    env_slack = os.environ.get("SLACK_WEBHOOK_URL")
+    if env_slack:
+        cfg.slack_webhook_url = env_slack
+    env_discord = os.environ.get("DISCORD_WEBHOOK_URL")
+    if env_discord:
+        cfg.discord_webhook_url = env_discord
 
     if not cfg.dora_url:
         raise ValueError("config: dora_url is required")
     cfg.dora_url = cfg.dora_url.rstrip("/")
-    if require_slack and not cfg.slack_webhook_url:
-        raise ValueError("config: slack_webhook_url is required (set in config, in SLACK_WEBHOOK_URL env, or pass --dry-run)")
+    if require_webhook and not (cfg.slack_webhook_url or cfg.discord_webhook_url):
+        raise ValueError(
+            "config: at least one of slack_webhook_url / discord_webhook_url is required "
+            "(set in config, in SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL env, or pass --dry-run)"
+        )
     if not cfg.client_match:
         raise ValueError("config: client_match is required")
 
