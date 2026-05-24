@@ -19,6 +19,13 @@ class State:
     last_known_head: int = 0
     last_heartbeat_ts: float = 0.0
     client_versions: dict[str, str] = field(default_factory=dict)
+    # Sliding window of recent missed-block timestamps + slot numbers per
+    # proposer. Used to decide when a client's miss rate crosses the
+    # storm-mode threshold.
+    missed_recent: dict[str, list[list[float]]] = field(default_factory=dict)
+    # Active missed-block burst per proposer:
+    #   {"started_ts", "last_update_ts", "first_slot", "last_slot", "total_misses"}.
+    burst_state: dict[str, dict] = field(default_factory=dict)
 
     def to_json(self) -> dict:
         d = asdict(self)
@@ -44,6 +51,11 @@ class State:
             last_heartbeat_ts=float(d.get("last_heartbeat_ts", 0.0)),
             client_versions=dict(d.get("client_versions", {})),
             pending_fork_ticks={k: int(v) for k, v in (d.get("pending_fork_ticks") or {}).items()},
+            missed_recent={
+                k: [[float(t), int(s)] for t, s in v]
+                for k, v in (d.get("missed_recent") or {}).items()
+            },
+            burst_state={k: dict(v) for k, v in (d.get("burst_state") or {}).items()},
         )
 
 

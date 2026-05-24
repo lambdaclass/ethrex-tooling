@@ -52,6 +52,16 @@ heartbeat_slot_window: 256
 #   detailed  — per-client list with status / head / distance
 heartbeat_other_clients: "detailed"
 
+# Missed-block storm mode. When a single proposer hits
+# `missed_burst_threshold` misses inside the last `missed_burst_window_minutes`,
+# we stop posting per-slot alerts and switch to one "burst started" alert
+# plus periodic "still bursting" updates whose interval backs off through
+# `missed_burst_update_schedule_minutes` (last value repeats indefinitely).
+# A "burst resolved" alert fires once the window has been clear of misses.
+missed_burst_threshold: 5
+missed_burst_window_minutes: 15
+missed_burst_update_schedule_minutes: [15, 30, 60, 120]
+
 # Which checks to enable.
 checks:
   missed_blocks: true

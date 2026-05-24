@@ -26,6 +26,7 @@ _EMOJI_MAP = {
     ":turtle:": "\U0001f422",
     ":zap:": "⚡",
     ":package:": "\U0001f4e6",
+    ":fire:": "\U0001f525",
     ":rocket:": "\U0001f680",
     ":mag:": "\U0001f50d",
     ":desktop_computer:": "\U0001f5a5️",

@@ -17,12 +17,70 @@ def _matches(name: str | None, needle: str) -> bool:
     return needle.lower() in name.lower()
 
 
+def _burst_update_interval_s(schedule_min: list[int], update_count: int) -> int:
+    """Pick the next update interval (seconds) for a burst.
+
+    The schedule is consumed in order; once past the end, the final value
+    is reused indefinitely (the cap). Defaults give 15min → 30min → 1h → 2h
+    and then 2h forever.
+    """
+    if not schedule_min:
+        return 120 * 60
+    idx = min(update_count, len(schedule_min) - 1)
+    return max(int(schedule_min[idx]), 1) * 60
+
+
 def check_missed_blocks(
     dora: DoraClient,
     notifier: Notifier,
     cfg: Config,
     state: State,
 ) -> None:
+    now = time.time()
+    window_s = max(cfg.missed_burst_window_minutes, 1) * 60
+    threshold = max(cfg.missed_burst_threshold, 1)
+
+    # 1. Age out the recent-misses window for every known proposer; resolve
+    #    any burst whose window is now empty; fire backoff updates for the rest.
+    for proposer in list(state.missed_recent.keys()):
+        cutoff = now - window_s
+        kept = [pair for pair in state.missed_recent[proposer] if pair[0] >= cutoff]
+        if kept:
+            state.missed_recent[proposer] = kept
+        else:
+            del state.missed_recent[proposer]
+
+    for proposer in list(state.burst_state.keys()):
+        burst = state.burst_state[proposer]
+        if proposer not in state.missed_recent:
+            duration_min = max(int((now - float(burst.get("started_ts", now))) / 60), 0)
+            notifier.send(
+                f":white_check_mark: *Missed-block burst resolved* — `{proposer}`: "
+                f"*{int(burst.get('total_misses', 0))}* missed blocks over {duration_min}min "
+                f"(first `{int(burst.get('first_slot', 0))}`, last `{int(burst.get('last_slot', 0))}`)"
+            )
+            del state.burst_state[proposer]
+            continue
+        interval = _burst_update_interval_s(
+            cfg.missed_burst_update_schedule_minutes,
+            int(burst.get("update_count", 0)),
+        )
+        if now - float(burst.get("last_update_ts", 0.0)) >= interval:
+            burst["last_update_ts"] = now
+            burst["update_count"] = int(burst.get("update_count", 0)) + 1
+            next_interval = _burst_update_interval_s(
+                cfg.missed_burst_update_schedule_minutes,
+                int(burst["update_count"]),
+            )
+            next_min = next_interval // 60
+            notifier.send(
+                f":fire: *Missed-block burst continues* — `{proposer}`: "
+                f"*{int(burst.get('total_misses', 0))}* missed blocks since start "
+                f"(latest slot `{int(burst.get('last_slot', 0))}`). "
+                f"Next update in ~{next_min}min."
+            )
+
+    # 2. Process new missed / orphaned slots from Dora.
     slots = dora.slots(limit=cfg.slot_scan_limit, with_orphaned=1, with_missing=1)
     for s in slots:
         proposer_name = s.get("proposer_name") or ""
@@ -32,9 +90,8 @@ def check_missed_blocks(
         status = (s.get("status") or "").lower()
         if status == "missing" and slot_num not in state.reported_missed_slots:
             state.reported_missed_slots.add(slot_num)
-            notifier.send(
-                f":warning: *Missed block* — slot `{slot_num}` "
-                f"(epoch {s.get('epoch')}) proposer `{proposer_name}` (idx {s.get('proposer')})"
+            _handle_missed_slot(
+                notifier, state, cfg, proposer_name, slot_num, s, now, window_s, threshold
             )
         elif status == "orphaned" and slot_num not in state.reported_orphan_slots:
             state.reported_orphan_slots.add(slot_num)
@@ -42,6 +99,57 @@ def check_missed_blocks(
                 f":warning: *Orphaned block* — slot `{slot_num}` "
                 f"(epoch {s.get('epoch')}) proposer `{proposer_name}` (idx {s.get('proposer')})"
             )
+
+
+def _handle_missed_slot(
+    notifier: Notifier,
+    state: State,
+    cfg: Config,
+    proposer: str,
+    slot: int,
+    raw: dict,
+    now: float,
+    window_s: int,
+    threshold: int,
+) -> None:
+    recent = state.missed_recent.setdefault(proposer, [])
+    recent.append([now, slot])
+    cutoff = now - window_s
+    state.missed_recent[proposer] = [pair for pair in recent if pair[0] >= cutoff]
+    recent = state.missed_recent[proposer]
+
+    burst = state.burst_state.get(proposer)
+    if burst:
+        # Already in storm mode: accumulate counters, suppress per-slot alert.
+        burst["total_misses"] = int(burst.get("total_misses", 0)) + 1
+        burst["last_slot"] = slot
+        return
+
+    if len(recent) >= threshold:
+        slots_csv = ", ".join(f"`{int(s)}`" for _, s in sorted(recent, key=lambda p: p[1]))
+        first_slot = min(int(s) for _, s in recent)
+        first_interval_min = _burst_update_interval_s(
+            cfg.missed_burst_update_schedule_minutes, 0
+        ) // 60
+        state.burst_state[proposer] = {
+            "started_ts": now,
+            "last_update_ts": now,
+            "first_slot": first_slot,
+            "last_slot": slot,
+            "total_misses": len(recent),
+            "update_count": 0,
+        }
+        notifier.send(
+            f":fire: *Missed-block burst* — `{proposer}`: *{len(recent)}* missed blocks "
+            f"in last {cfg.missed_burst_window_minutes}min — slots {slots_csv}. "
+            f"Further per-miss alerts suppressed; next update in ~{first_interval_min}min."
+        )
+        return
+
+    notifier.send(
+        f":warning: *Missed block* — slot `{slot}` "
+        f"(epoch {raw.get('epoch')}) proposer `{proposer}` (idx {raw.get('proposer')})"
+    )
 
 
 def check_client_head_forks(

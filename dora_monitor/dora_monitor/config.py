@@ -34,6 +34,14 @@ class Config:
     heartbeat_slot_window: int = 256
     # "off" (skip), "summary" (one-line aggregate), "detailed" (per-client list)
     heartbeat_other_clients: str = "detailed"
+    # Storm mode for missed-block alerts: once a proposer hits
+    # `missed_burst_threshold` misses inside `missed_burst_window_minutes`,
+    # per-slot alerts are suppressed and replaced by one burst-start alert
+    # plus periodic "still bursting" updates whose interval backs off
+    # through `missed_burst_update_schedule_minutes` (last value repeats).
+    missed_burst_threshold: int = 5
+    missed_burst_window_minutes: int = 15
+    missed_burst_update_schedule_minutes: list[int] = field(default_factory=lambda: [15, 30, 60, 120])
     checks: Checks = field(default_factory=Checks)
 
 
