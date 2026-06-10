@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Events &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Events &mdash; {{ devnet }}</h1>
+
+{% if error and not active_events and not resolved_events %}
+<div class="error-box">{{ error }}</div>
+{% else %}
+
+<!-- Active events -->
+<h2>Active events ({{ active_events | length }})</h2>
+{% if active_events %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Severity</th>
+      <th>Kind</th>
+      <th>Node</th>
+      <th>Message</th>
+      <th>Count</th>
+      <th>First seen</th>
+      <th>Last seen</th>
+      <th>Flags</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in active_events %}
+    <tr>
+      <td>
+        {% if e.severity == 'crit' %}
+          <span class="tag tag-fail">crit</span>
+        {% elif e.severity == 'warn' %}
+          <span class="tag tag-warn">warn</span>
+        {% else %}
+          <span class="tag tag-info">{{ e.severity }}</span>
+        {% endif %}
+      </td>
+      <td>{{ e.kind | humanize }}</td>
+      <td>{% if e.node %}<a href="/node/{{ devnet }}/{{ e.node }}">{{ e.node }}</a>{% else %}-{% endif %}</td>
+      <td class="msg-cell">{{ e.message }}</td>
+      <td>{{ e.count }}</td>
+      <td class="ts-cell">{{ e.first_seen_str or "-" }}</td>
+      <td class="ts-cell">{{ e.last_seen_str or "-" }}</td>
+      <td>
+        {% if e.flapping %}
+          <span class="tag tag-warn">FLAPPING</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% if e.details %}
+    <tr>
+      <td colspan="8" class="ev-detail">
+        {% for k, v in e.details.items() %}
+        <span class="kv"><span class="k">{{ k | humanize }}:</span>
+          {% if 'commit' in k|lower and v %}<a href="{{ ethrex_commit_url(v) }}" target="_blank" style="font-family:monospace;">{{ v }}</a>
+          {% elif v is string and v|length > 60 %}<code>{{ v }}</code>
+          {% else %}{{ v }}{% endif %}
+        </span>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="info-box">No active events. Run: <code>dv collect {{ devnet }} events</code> to detect.</div>
+{% endif %}
+
+<!-- Recently resolved (collapsible) -->
+{% if resolved_events %}
+<h2>
+  Recently resolved ({{ resolved_events | length }})
+  <button id="toggle-resolved" onclick="toggleResolved()"
+    style="margin-left:10px; background:#0f1520; border:1px solid #273341; color:#9aa2ac;
+           padding:2px 10px; border-radius:3px; cursor:pointer; font-size:12px;">
+    show
+  </button>
+</h2>
+<div id="resolved-section" style="display:none;">
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Severity</th>
+      <th>Kind</th>
+      <th>Node</th>
+      <th>Message</th>
+      <th>Count</th>
+      <th>Resolved at</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in resolved_events %}
+    <tr>
+      <td>
+        {% if e.severity == 'crit' %}
+          <span class="tag tag-fail">crit</span>
+        {% elif e.severity == 'warn' %}
+          <span class="tag tag-warn">warn</span>
+        {% else %}
+          <span class="tag tag-info">{{ e.severity }}</span>
+        {% endif %}
+      </td>
+      <td>{{ e.kind | humanize }}</td>
+      <td>{% if e.node %}<a href="/node/{{ devnet }}/{{ e.node }}">{{ e.node }}</a>{% else %}-{% endif %}</td>
+      <td class="msg-cell">{{ e.message }}</td>
+      <td>{{ e.count }}</td>
+      <td class="ts-cell">{{ e.resolved_at_str or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+</div>
+<script>
+function toggleResolved() {
+  var sec = document.getElementById('resolved-section');
+  var btn = document.getElementById('toggle-resolved');
+  if (sec.style.display === 'none') { sec.style.display = ''; btn.textContent = 'hide'; }
+  else { sec.style.display = 'none'; btn.textContent = 'show'; }
+}
+</script>
+{% endif %}
+
+{% endif %}
+{% endblock %}

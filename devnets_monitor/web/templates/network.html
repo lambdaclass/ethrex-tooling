@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Network &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Network &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif network_data %}
+
+<p style="color:#9aa2ac; margin-bottom:16px;">Snapshot at ts={{ network_data.ts }}</p>
+
+<!-- Head forks / splits -->
+<h2>Head forks ({{ network_data.fork_count }})</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Fork ID</th>
+      <th>Head slot</th>
+      <th>Head root</th>
+      <th>Clients</th>
+      <th>Canonical</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in network_data.splits %}
+    <tr>
+      <td>{{ s.fork_id or "-" }}</td>
+      <td>{{ s.head_slot if s.head_slot is not none else "-" }}</td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ (s.head_root or "")[:16] }}{% if s.head_root %}...{% endif %}</td>
+      <td>{{ s.head_count if s.head_count is not none else "-" }}</td>
+      <td>
+        {% if s.is_canonical %}
+          <span class="tag tag-ok">yes</span>
+        {% else %}
+          <span style="color:#9aa2ac;">no</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Per-client list -->
+{% if network_data.clients %}
+<h2>Clients on head ({{ network_data.clients | length }})</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>CL client</th>
+      <th>EL client</th>
+      <th>Status</th>
+      <th>Head slot</th>
+      <th>Distance</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in network_data.clients %}
+    {% set parts = (c.name or "").split("-") %}
+    {% set cl_client = parts[0] if parts | length >= 1 else "" %}
+    {% set el_client = parts[1] if parts | length >= 2 else "" %}
+    <tr {% if el_client == "ethrex" %}style="background:#1a1230;"{% endif %}>
+      <td>
+        {% if el_client == "ethrex" %}
+          <a href="/node/{{ devnet }}/{{ c.name }}">
+            <span class="tag tag-ethrex">{{ c.name }}</span>
+          </a>
+        {% else %}
+          {{ c.name }}
+        {% endif %}
+      </td>
+      <td>{{ cl_client }}</td>
+      <td>{{ el_client }}</td>
+      <td>
+        {% if c.status == "online" %}
+          <span class="tag tag-ok">online</span>
+        {% elif c.status == "optimistic" %}
+          <span class="tag tag-warn">optimistic</span>
+        {% else %}
+          <span class="tag tag-fail">{{ c.status or "?" }}</span>
+        {% endif %}
+      </td>
+      <td>{{ c.head_slot if c.head_slot is not none else "-" }}</td>
+      <td>
+        {% if c.distance is not none and c.distance > 0 %}
+          <span class="tag tag-warn">+{{ c.distance }}</span>
+        {% else %}
+          <span style="color:#9aa2ac;">0</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<!-- CL client distribution -->
+{% if network_data.client_dist %}
+<h2>CL client distribution</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Layer</th><th>Client</th><th>Count</th></tr>
+  </thead>
+  <tbody>
+    {% for d in network_data.client_dist %}
+    <tr>
+      <td>{{ d.layer }}</td>
+      <td>{{ d.client }}</td>
+      <td>{{ d.count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% else %}
+<div class="info-box">No network data. Run: <code>dv collect {{ devnet }} network</code></div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}EIP tracker -- {{ devnet }}{% endblock %}
+
+{% block head_extra %}
+<style>
+  .status-done       { background:#1a4731; color:#3fb950; }
+  .status-in_progress{ background:#3d2b00; color:#d29922; }
+  .status-missing    { background:#3d0000; color:#f85149; }
+  .status-na         { background:#1c2330; color:#9aa2ac; }
+  .status-unknown    { background:#0f1520; color:#9aa2ac; border:1px solid #273341; }
+  .eip-entry { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #1c2330; }
+  .eip-entry:last-child { border-bottom:none; }
+  .eip-num { color:#9aa2ac; font-size:12px; min-width:60px; }
+  .eip-title { flex:1; }
+  .status-group { margin-bottom:24px; }
+  .status-group h3 { margin-bottom:8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>EIP Tracker -- {{ devnet }}</h1>
+<p style="color:#9aa2ac;margin-bottom:16px;">
+  ethrex implementation status for upcoming fork EIPs. Set the
+  <code>status</code> field in <code>config/eips.json</code> and re-run
+  <code>dv collect {{ devnet }} forks</code> to update.
+  Values: <code>done</code>, <code>in_progress</code>, <code>missing</code>,
+  <code>n/a</code>, <code>unknown</code>.
+</p>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif eiptrack_data %}
+
+<div class="section">
+  <h2>Fork: {{ eiptrack_data.fork }} -- {{ eiptrack_data.total }} EIPs</h2>
+  <p style="color:#9aa2ac;font-size:12px;margin-bottom:12px;">
+    {% for s, n in eiptrack_data.stage_counts.items() %}
+    {{ s }}: {{ n }}{% if not loop.last %} &nbsp;|&nbsp; {% endif %}
+    {% endfor %}
+  </p>
+
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+    {% for g in eiptrack_data.groups %}
+    <span class="tag status-{{ g.status | replace('/', '') }}">
+      {{ g.label }}: {{ g.count }}
+    </span>
+    {% endfor %}
+  </div>
+
+  {% for g in eiptrack_data.groups %}
+  {% if g.eips %}
+  <div class="status-group">
+    <h3>
+      <span class="tag status-{{ g.status | replace('/', '') }}">{{ g.label }}</span>
+      ({{ g.count }})
+    </h3>
+    <div>
+      {% for e in g.eips %}
+      <div class="eip-entry">
+        <span class="eip-num">EIP-{{ e.eip }}</span>
+        {% if e.stage %}
+        <span class="stage-label stage-{{ e.stage | lower }}">{{ e.stage }}</span>
+        {% endif %}
+        <span class="eip-title">{{ e.title }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="info-box">
+  No EIP-track data. Run: <code>dv collect {{ devnet }} forks</code>
+</div>
+{% endif %}
+{% endblock %}

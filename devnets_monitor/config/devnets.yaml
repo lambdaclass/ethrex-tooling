@@ -1,0 +1,48 @@
+# ethrex-devnets: registry of ethpandaops devnets this toolkit operates on.
+#
+# This file is the static, hand-maintained entry point. Per-devnet LIVE facts
+# (node roster, fork schedule, image tag) are auto-discovered into
+# config/devnets/<name>.yaml by `dv discover <name>` and read from there.
+# Keep secrets OUT of this file; it is committed.
+#
+# Field reference: see config/schema.md
+
+# Default devnet used when a command is given no explicit <devnet> argument
+# and the DEVNET env var is unset.
+default: glamsterdam-devnet-5
+
+devnets:
+  glamsterdam-devnet-5:
+    # GitHub repo holding ansible inventory + network-configs (source of truth
+    # for roster, image tags, genesis/fork schedule). Used by `dv discover`.
+    devnets_repo: ethpandaops/glamsterdam-devnets
+    # Sub-path inside that repo for this devnet (ansible inventory dir name and
+    # network-configs dir name). For glamsterdam the dirs are "devnet-5".
+    repo_path: devnet-5
+    # Public service base URLs (no trailing slash).
+    dora_base: https://dora.glamsterdam-devnet-5.ethpandaops.io
+    config_base: https://config.glamsterdam-devnet-5.ethpandaops.io
+    # ethrex devnet branch + image builder target (informational).
+    branch: glamsterdam-devnet-5
+    builder_target: lambdaclass/ethrex@glamsterdam-devnet-5
+    # SSH host pattern. Optional; defaults to the ethpandaops scheme below.
+    # Placeholders: {user}, {node}, {devnet}. Override only if a devnet differs.
+    # ssh_user: devops
+    # ssh_host_template: "{user}@{node}.srv.{devnet}.ethpandaops.io"
+    # Hive groups to pull conformance results from for this devnet.
+    hive_groups:
+      - bal
+      - bal-quick
+
+  # ---- Template for adding another devnet (uncomment + adjust, then run
+  # ---- `dv discover <name>`). repo_path is the dir name inside the repo.
+  #
+  # bal-devnet-3:
+  #   devnets_repo: ethpandaops/bal-devnets
+  #   repo_path: devnet-3
+  #   dora_base: https://dora.bal-devnet-3.ethpandaops.io
+  #   config_base: https://config.bal-devnet-3.ethpandaops.io
+  #   branch: bal-devnet-3
+  #   builder_target: lambdaclass/ethrex@bal-devnet-3
+  #   hive_groups:
+  #     - bal

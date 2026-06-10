@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}BAL -- {{ devnet }}{% endblock %}
+
+{% block content %}
+<h1>BAL Inspection (EIP-7928) -- {{ devnet }}</h1>
+<p style="color:#9aa2ac;margin-bottom:16px;">
+  Block-Level Access Lists for ethrex-proposed canonical slots.
+  Collected via <code>dv collect {{ devnet }} slow</code>.
+</p>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif bal_data %}
+
+<div class="section">
+  <h2>Summary</h2>
+  <table style="width:auto;">
+    <tr><th>Total entries</th><td>{{ bal_data.total }}</td></tr>
+    <tr><th>Zero-access slots</th><td>{{ bal_data.zero_count }}</td></tr>
+    <tr><th>Avg access_count</th><td>{{ bal_data.avg_access_count }}</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Recent ethrex BAL entries (newest first)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Slot</th>
+          <th>EL block</th>
+          <th>access_count</th>
+          <th>Proposer</th>
+          <th>Fetched</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in bal_data.rows %}
+        <tr>
+          <td>{{ r.slot }}</td>
+          <td>{{ r.eth_block_number if r.eth_block_number is not none else "-" }}</td>
+          <td>
+            {% if r.access_count == 0 %}
+              <span class="tag tag-warn">0</span>
+            {% else %}
+              {{ r.access_count }}
+            {% endif %}
+          </td>
+          <td>{{ r.proposer_name }}</td>
+          <td style="color:#9aa2ac;">{{ r.fetched_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="info-box">No BAL data. Run: <code>dv collect {{ devnet }} slow</code></div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Assertoor &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Assertoor &mdash; {{ devnet }}</h1>
+
+{% if error and not assertoor_data %}
+<div class="error-box">{{ error }}</div>
+<div class="info-box">
+  Assertoor UI: <a href="{{ assertoor_url }}" target="_blank">{{ assertoor_url }}</a>
+</div>
+{% elif assertoor_data %}
+
+{% set runs = assertoor_data.runs %}
+
+<!-- Summary banner -->
+{% set failed = runs | selectattr("status", "equalto", "failure") | list %}
+{% set running = runs | selectattr("status", "equalto", "running") | list %}
+<div style="margin:16px 0; padding:14px 18px; border-radius:6px;
+  {% if failed %}
+    background:#3d0000; border:1px solid #f85149; color:#f85149;
+  {% elif running %}
+    background:#1a3050; border:1px solid #59c2ff; color:#59c2ff;
+  {% else %}
+    background:#1a4731; border:1px solid #3fb950; color:#3fb950;
+  {% endif %}
+  font-size:1.05em; font-weight:bold;">
+  {% if failed %}
+    {{ failed | length }} FAILED test run{{ "s" if failed | length != 1 }}
+  {% elif running %}
+    {{ running | length }} test run{{ "s" if running | length != 1 }} running
+  {% else %}
+    All tests passed ({{ runs | length }} runs)
+  {% endif %}
+</div>
+
+{% if runs %}
+<h2>Test runs</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Run ID</th>
+      <th>Status</th>
+      <th>Name</th>
+      <th>Test ID</th>
+      <th>Started</th>
+      <th>Stopped</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in runs %}
+    <tr>
+      <td style="color:#9aa2ac;">{{ r.run_id }}</td>
+      <td>
+        {% if r.status == "success" %}
+          <span class="tag tag-ok">success</span>
+        {% elif r.status == "failure" %}
+          <span class="tag tag-fail">failure</span>
+        {% elif r.status == "running" %}
+          <span class="tag tag-next">running</span>
+        {% else %}
+          <span style="color:#9aa2ac; font-size:12px;">{{ r.status }}</span>
+        {% endif %}
+      </td>
+      <td>{{ r.name or "-" }}</td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ r.test_id or "-" }}</td>
+      <td class="ts-cell">{{ r.started_at or "-" }}</td>
+      <td class="ts-cell">{{ r.stopped_at or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<div class="info-box" style="font-size:13px; margin-top:12px;">
+  Assertoor UI: <a href="{{ assertoor_data.assertoor_url }}" target="_blank">{{ assertoor_data.assertoor_url }}</a>
+</div>
+
+{% else %}
+<div class="info-box">No assertoor data. Run: <code>dv collect {{ devnet }} assertoor</code>
+  <br>Assertoor UI: <a href="{{ assertoor_url }}" target="_blank">{{ assertoor_url }}</a>
+</div>
+{% endif %}
+{% endblock %}

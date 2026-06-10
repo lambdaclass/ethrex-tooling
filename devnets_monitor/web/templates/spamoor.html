@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Spamoor &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Spamoor &mdash; {{ devnet }}</h1>
+
+{% if error and not spamoor_data %}
+<div class="error-box">{{ error }}</div>
+<div class="info-box">
+  Spamoor UI: <a href="{{ spamoor_url }}" target="_blank">{{ spamoor_url }}</a>
+</div>
+{% elif spamoor_data %}
+
+<p style="color:#9aa2ac; margin-bottom:16px;">Snapshot at {{ spamoor_data.ts_str }}</p>
+
+<!-- Blob load banner -->
+<div style="margin:16px 0; padding:14px 18px; border-radius:6px;
+  {% if spamoor_data.blob_active %}
+    background:#1a4731; border:1px solid #3fb950; color:#3fb950;
+  {% elif spamoor_data.blob_active is sameas false %}
+    background:#3d2b00; border:1px solid #d29922; color:#d29922;
+  {% else %}
+    background:#0f1520; border:1px solid #273341; color:#9aa2ac;
+  {% endif %}
+  font-size:1.05em; font-weight:bold;">
+  {% if spamoor_data.blob_active %}
+    BLOB LOAD: ON  (blob spammer active)
+  {% elif spamoor_data.blob_active is sameas false %}
+    BLOB LOAD: OFF  (no active blob spammer)
+  {% else %}
+    BLOB LOAD: unknown
+  {% endif %}
+</div>
+
+<!-- Spammer table -->
+{% if spamoor_data.spammers %}
+<h2>Spammers</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Scenario</th>
+      <th>Status</th>
+      <th>Enabled</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in spamoor_data.spammers %}
+    {% set is_blob = "blob" in (s.scenario or "").lower() %}
+    <tr {% if is_blob and s.status == 1 %}style="background:#1a1230;"{% endif %}>
+      <td style="color:#9aa2ac;">{{ s.spammer_id }}</td>
+      <td>
+        {% if is_blob %}
+          <span class="tag tag-ethrex">{{ s.name or "-" }}</span>
+        {% else %}
+          {{ s.name or "-" }}
+        {% endif %}
+      </td>
+      <td style="font-size:12px;">{{ s.scenario or "-" }}</td>
+      <td>
+        {% if s.status == 1 %}
+          <span class="tag tag-ok">running</span>
+        {% else %}
+          <span class="tag tag-warn">stopped</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if s.enabled %}
+          <span style="color:#3fb950;">yes</span>
+        {% else %}
+          <span style="color:#9aa2ac;">no</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<div class="info-box" style="font-size:13px; margin-top:12px;">
+  Spamoor UI: <a href="{{ spamoor_data.spamoor_url }}" target="_blank">{{ spamoor_data.spamoor_url }}</a>
+</div>
+
+{% else %}
+<div class="info-box">No spamoor data. Run: <code>dv collect {{ devnet }} spamoor</code>
+  <br>Spamoor UI: <a href="{{ spamoor_url }}" target="_blank">{{ spamoor_url }}</a>
+</div>
+{% endif %}
+{% endblock %}
