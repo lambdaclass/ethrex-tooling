@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Clients &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Clients &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif clients_data %}
+
+<p style="color:#9aa2ac; margin-bottom:16px;">Snapshot at {{ clients_data.ts_str }}</p>
+
+<!-- ethrex versions live -->
+{% if clients_data.ethrex_versions %}
+<h2>ethrex versions live</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Version</th><th>Count</th></tr>
+  </thead>
+  <tbody>
+    {% for ev in clients_data.ethrex_versions %}
+    <tr>
+      <td style="font-family:monospace; font-size:12px;">{{ ev.version }}</td>
+      <td>{{ ev.count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<!-- Network overview -->
+{% if clients_data.overview %}
+{% set ov = clients_data.overview %}
+<h2>Network overview</h2>
+<div class="info-box" style="font-size:13px;">
+  slot={{ ov.current_slot if ov.current_slot is not none else "?" }},
+  epoch={{ ov.current_epoch if ov.current_epoch is not none else "?" }},
+  finalized={{ ov.finalized_epoch if ov.finalized_epoch is not none else "?" }},
+  justified={{ ov.justified_epoch if ov.justified_epoch is not none else "?" }}
+</div>
+{% endif %}
+
+<!-- Fork agreement -->
+<h2>Fork agreement</h2>
+<div class="info-box" style="font-size:13px;">
+  Head forks (splits): {{ clients_data.fork_count }}
+  {% if clients_data.fork_count == 1 %}
+    &mdash; <span class="tag tag-ok">consensus</span> (all nodes on same head)
+  {% elif clients_data.fork_count > 1 %}
+    &mdash; <span class="tag tag-fail">SPLIT</span> (nodes on different heads)
+  {% endif %}
+  &nbsp; | &nbsp;
+  <a href="/network/{{ devnet }}">Network detail</a>
+  &nbsp; | &nbsp;
+  Forkmon: <a href="{{ forkmon_url }}" target="_blank">{{ forkmon_url }}</a> (link-out only, no API)
+</div>
+
+<!-- EL + CL client distribution -->
+{% if clients_data.client_dist %}
+<h2>Client distribution (EL + CL)</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Layer</th><th>Client</th><th>Count</th><th>Version</th></tr>
+  </thead>
+  <tbody>
+    {% for r in clients_data.client_dist %}
+    <tr {% if r.client == "ethrex" %}style="background:#1a1230;"{% endif %}>
+      <td>{{ r.layer }}</td>
+      <td>
+        {% if r.client == "ethrex" %}
+          <span class="tag tag-ethrex">{{ r.client }}</span>
+        {% else %}
+          {{ r.client }}
+        {% endif %}
+      </td>
+      <td>{{ r.count }}</td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ (r.version or "")[:80] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% else %}
+<div class="info-box">No client data. Run: <code>dv collect {{ devnet }} clients</code></div>
+{% endif %}
+{% endblock %}

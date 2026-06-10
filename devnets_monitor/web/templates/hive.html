@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Hive &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Hive runs &mdash; {{ devnet }}</h1>
+<p style="color:#9aa2ac; margin-bottom:16px;">Most recent ethrex run per (group, suite). Run: <code>dv collect {{ devnet }} hive</code> to refresh.</p>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Group</th>
+      <th>Suite</th>
+      <th>Pass</th>
+      <th>Fail</th>
+      <th>Total</th>
+      <th>Version</th>
+      <th>Started</th>
+      <th>Link</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.group }}</td>
+      <td style="white-space:normal; max-width:320px;">{{ r.suite }}</td>
+      <td><span class="tag tag-ok">{{ r.passes }}</span></td>
+      <td>
+        {% if r.fails != "?" and r.fails | int > 0 %}
+          <span class="tag tag-fail">{{ r.fails }}</span>
+        {% else %}
+          {{ r.fails }}
+        {% endif %}
+      </td>
+      <td>{{ r.ntests }}</td>
+      <td style="font-size:11px; color:#9aa2ac; max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="{{ r.version }}">
+        {{ r.version[:60] }}{% if r.version | length > 60 %}...{% endif %}
+      </td>
+      <td>{{ r.started if r.started else "-" }}</td>
+      <td>{% if r.web_url %}<a href="{{ r.web_url }}" target="_blank">view</a>{% else %}-{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="info-box">No Hive runs for {{ devnet }}. Run: <code>dv collect {{ devnet }} hive</code></div>
+{% endif %}
+{% endblock %}

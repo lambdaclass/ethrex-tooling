@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Incidents &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Incident history &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif content_html %}
+<p style="color:#9aa2ac; margin-bottom:16px;">Source: <code>docs/history/{{ devnet }}.md</code></p>
+<div class="md-body">{{ content_html | safe }}</div>
+{% endif %}
+{% endblock %}

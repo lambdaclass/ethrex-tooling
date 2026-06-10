@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+
+{% block title %}Command Center &mdash; ethrex devnets{% endblock %}
+
+{# T3: 30-second auto-refresh on this page only #}
+{% block head_extra %}
+<meta http-equiv="refresh" content="30">
+<style>
+  .cc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .cc-refresh-note {
+    font-size: 11px;
+    color: #6b7682;
+  }
+  /* Node status tiles */
+  .node-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+    margin: 10px 0 20px 0;
+  }
+  .node-tile {
+    background: #0f1520;
+    border: 1px solid #1c2330;
+    border-radius: 8px;
+    padding: 14px 18px;
+    border-left: 4px solid #273341;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .node-tile.green  { border-left-color: #aad94c; }
+  .node-tile.amber  { border-left-color: #ffb454; }
+  .node-tile.red    { border-left-color: #f26d78; }
+  .node-tile .tile-name {
+    font-size: 13px;
+    font-weight: bold;
+    color: #d6d2c8;
+    margin-bottom: 6px;
+    word-break: break-all;
+  }
+  .node-tile .tile-name a { color: #d6d2c8; }
+  .node-tile .tile-name a:hover { color: #59c2ff; text-decoration: underline; }
+  .node-tile .tile-row {
+    font-size: 12px;
+    color: #9aa2ac;
+    margin: 2px 0;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .node-tile .tile-row .k { color: #6b7682; }
+  .node-tile .tile-row .v { color: #bfbdb6; }
+  /* Summary bar */
+  .cc-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    background: #0f1520;
+    border: 1px solid #273341;
+    border-radius: 4px;
+    padding: 8px 14px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    align-items: center;
+  }
+  .cc-summary .cc-item { display: flex; align-items: center; gap: 6px; }
+  .cc-summary .cc-label { color: #6b7682; font-size: 12px; }
+  /* Events mini-list */
+  .cc-events { margin: 0 0 16px 0; }
+  .cc-events .ev-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid #1c2330;
+  }
+  .cc-events .ev-row:last-child { border-bottom: none; }
+  .cc-events .ev-msg { color: #bfbdb6; word-break: break-word; flex: 1; }
+  .cc-events .ev-ts { color: #6b7682; white-space: nowrap; }
+  .cc-devnet-title {
+    font-size: 1.15em;
+    color: #d6d2c8;
+    font-weight: bold;
+    margin: 28px 0 10px 0;
+    border-bottom: 1px solid #1c2330;
+    padding-bottom: 4px;
+  }
+  .cc-devnet-title:first-of-type { margin-top: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cc-header">
+  <h1 style="margin-bottom:0;">Command Center</h1>
+  <span class="cc-refresh-note">auto-refreshing every 30s</span>
+</div>
+
+{% set devnet_names = devnets | map(attribute='name') | list %}
+
+{% for dv_entry in devnets %}
+{% set cc = dv_entry.cc %}
+<div class="section">
+  <div class="cc-devnet-title">
+    <a href="/blobs/{{ dv_entry.name }}">{{ dv_entry.name }}</a>
+  </div>
+
+  {# --- Summary bar: finality, fork countdown, blob flow --- #}
+  <div class="cc-summary">
+    {% if cc.finality %}
+    <div class="cc-item">
+      <span class="cc-label">slot</span>
+      <span>{{ cc.finality.current_slot if cc.finality.current_slot is not none else "?" }}</span>
+    </div>
+    <div class="cc-item">
+      <span class="cc-label">epoch</span>
+      <span>{{ cc.finality.current_epoch if cc.finality.current_epoch is not none else "?" }}</span>
+    </div>
+    <div class="cc-item">
+      <span class="cc-label">finalized</span>
+      {% if cc.finality.finalized_epoch is not none %}
+        <span class="tag tag-ok">{{ cc.finality.finalized_epoch }}</span>
+      {% else %}
+        <span style="color:#9aa2ac;">?</span>
+      {% endif %}
+    </div>
+    {% if cc.finality.justified_epoch is not none %}
+    <div class="cc-item">
+      <span class="cc-label">justified</span>
+      <span>{{ cc.finality.justified_epoch }}</span>
+    </div>
+    {% endif %}
+    <span style="color:#1c2330;">|</span>
+    {% endif %}
+    {% if cc.next_fork %}
+    <div class="cc-item">
+      <span class="cc-label">next fork</span>
+      <span class="tag tag-next">{{ cc.next_fork.fork }}</span>
+      <span style="color:#9aa2ac; font-size:12px;">{{ cc.next_fork.countdown }}</span>
+    </div>
+    <span style="color:#1c2330;">|</span>
+    {% endif %}
+    <div class="cc-item">
+      <span class="cc-label">blob load</span>
+      {% if cc.blob_flow == "ON" %}
+        <span class="tag tag-ok">ON</span>
+      {% elif cc.blob_flow == "OFF" %}
+        <span class="tag tag-warn">OFF</span>
+      {% else %}
+        <span style="color:#9aa2ac; font-size:12px;">unknown</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# --- Node status tiles --- #}
+  {% if cc.nodes %}
+  <div class="node-tiles">
+    {% for h in cc.nodes %}
+    {% set rollup = h.rollup if h.rollup else "amber" %}
+    <div class="node-tile {{ rollup }}">
+      <div class="tile-name">
+        <a href="/node/{{ dv_entry.name }}/{{ h.node }}">{{ h.node }}</a>
+        &nbsp;
+        {% if rollup == "green" %}
+          <span class="tag tag-ok">OK</span>
+        {% elif rollup == "amber" %}
+          <span class="tag tag-warn">warn</span>
+        {% else %}
+          <span class="tag tag-fail">crit</span>
+        {% endif %}
+      </div>
+      <div class="tile-row">
+        <span class="k">head</span>
+        <span class="v">{{ h.head if h.head is not none else "-" }}</span>
+        &nbsp;
+        <span class="k">peers</span>
+        <span class="v">{{ h.peers if h.peers is not none else "-" }}</span>
+      </div>
+      <div class="tile-row">
+        <span class="k">state@head</span>
+        {% if (h.state_at_head or "") | lower == "yes" %}
+          <span class="tag tag-ok" style="font-size:11px;">yes</span>
+        {% else %}
+          <span class="tag tag-fail" style="font-size:11px;">{{ h.state_at_head or "?" }}</span>
+        {% endif %}
+        &nbsp;
+        <span class="k">sync</span>
+        {% if h.syncing == "yes" %}
+          <span class="tag tag-warn" style="font-size:11px;">syncing</span>
+        {% else %}
+          <span class="tag tag-ok" style="font-size:11px;">synced</span>
+        {% endif %}
+      </div>
+      <div class="tile-row">
+        <span class="k">commit</span>
+        {% if h.commit %}
+          <span class="v">
+            <a href="{{ ethrex_commit_url(h.commit) }}" target="_blank" style="font-family:monospace; font-size:11px;">{{ h.commit[:7] }}</a>
+          </span>
+        {% else %}
+          <span class="v">-</span>
+        {% endif %}
+        {% if h.buildnum %}
+          &nbsp;<span class="k">bn</span><span class="v">{{ h.buildnum }}</span>
+        {% endif %}
+      </div>
+      <div class="tile-row" style="color:#6b7682; font-size:11px;">{{ h.ts }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="info-box">No node health data. Run: <code>dv collect {{ dv_entry.name }} health</code></div>
+  {% endif %}
+
+  {# --- Latest events --- #}
+  {% if cc.events %}
+  <h3>Active events ({{ cc.events | length }}{% if cc.events | length == 8 %}+{% endif %})</h3>
+  <div class="cc-events">
+    {% for e in cc.events %}
+    <div class="ev-row">
+      {% if e.severity == "crit" %}
+        <span class="tag tag-fail" style="font-size:11px;">crit</span>
+      {% elif e.severity == "warn" %}
+        <span class="tag tag-warn" style="font-size:11px;">warn</span>
+      {% else %}
+        <span class="tag tag-info" style="font-size:11px;">{{ e.severity }}</span>
+      {% endif %}
+      <span style="color:#9aa2ac; font-size:11px; white-space:nowrap;">{{ e.kind | humanize }}</span>
+      {% if e.node %}
+        <a href="/node/{{ dv_entry.name }}/{{ e.node }}" style="font-size:11px; color:#9aa2ac; white-space:nowrap;">{{ e.node }}</a>
+      {% endif %}
+      <span class="ev-msg">{{ e.message }}</span>
+      <span class="ev-ts">{{ e.last_seen_str }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p style="font-size:12px; margin-bottom:12px;">
+    <a href="/events/{{ dv_entry.name }}">All events &rarr;</a>
+  </p>
+  {% else %}
+  <p style="font-size:12px; color:#6b7682; margin-bottom:12px;">No active events.</p>
+  {% endif %}
+
+  {# --- Hive summary --- #}
+  {% if dv_entry.hive %}
+  <h3>Hive (latest run per group)</h3>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Group</th>
+        <th>Pass</th>
+        <th>Fail</th>
+        <th>Total</th>
+        <th>Started</th>
+        <th>Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in dv_entry.hive %}
+      <tr>
+        <td>{{ h.group }}</td>
+        <td><span class="tag tag-ok">{{ h.passes }}</span></td>
+        <td>
+          {% if h.fails != "?" and h.fails | int > 0 %}
+            <span class="tag tag-fail">{{ h.fails }}</span>
+          {% else %}
+            {{ h.fails }}
+          {% endif %}
+        </td>
+        <td>{{ h.ntests }}</td>
+        <td>{{ h.started if h.started else "-" }}</td>
+        <td>{% if h.web_url %}<a href="{{ h.web_url }}" target="_blank">view</a>{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {# --- Services table --- #}
+  <h3>Services</h3>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Service</th><th>URL</th></tr>
+    </thead>
+    <tbody>
+      {% for svc in dv_entry.services %}
+      <tr>
+        <td>{{ svc.label }}</td>
+        <td><a href="{{ svc.url }}" target="_blank">{{ svc.url }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+</div>
+{% endfor %}
+
+{% if not devnets %}
+<div class="info-box">No devnets configured in config/devnets.yaml.</div>
+{% endif %}
+{% endblock %}

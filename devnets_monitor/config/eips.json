@@ -1,0 +1,80 @@
+{
+  "_comment": "Fork -> EIP map consumed by `dv fork` / the dashboard (loaded into fork_eips by `dv collect forks`). Sourced via eipmcp. Settled forks (cancun/shanghai/prague/osaka) list their final shipped EIP sets (no stage). glamsterdam (amsterdam) is pre-freeze: entries carry an inclusion `stage` per the EIP-7773 meta (SFI=Scheduled, CFI=Considered, PFI=Proposed). EIPs Declined for Inclusion (e.g. FOCIL 7805, EOF 7692, SSZ tx/receipts 6404/6466) are intentionally EXCLUDED. Stages shift until fork freeze; re-derive from get_eip(7773) body. bpo1/bpo2 are Blob-Parameter-Only forks (EIP-7892): no feature EIPs. The `status` field tracks ethrex implementation progress: done|in_progress|missing|n/a; absent/unknown means not yet assessed.",
+  "_source": "eipmcp get_hardfork + get_eip(7773) body (queried 2026-06-09)",
+  "forks": {
+    "cancun": [
+      {"eip": 1153, "title": "Transient storage opcodes"},
+      {"eip": 4788, "title": "Beacon block root in the EVM"},
+      {"eip": 4844, "title": "Shard Blob Transactions"},
+      {"eip": 5656, "title": "MCOPY - Memory copying instruction"},
+      {"eip": 6780, "title": "SELFDESTRUCT only in same transaction"},
+      {"eip": 7516, "title": "BLOBBASEFEE opcode"}
+    ],
+    "shanghai": [
+      {"eip": 3651, "title": "Warm COINBASE"},
+      {"eip": 3855, "title": "PUSH0 instruction"},
+      {"eip": 3860, "title": "Limit and meter initcode"},
+      {"eip": 4895, "title": "Beacon chain push withdrawals as operations"},
+      {"eip": 6049, "title": "Deprecate SELFDESTRUCT"}
+    ],
+    "prague": [
+      {"eip": 2537, "title": "Precompile for BLS12-381 curve operations"},
+      {"eip": 2935, "title": "Serve historical block hashes from state"},
+      {"eip": 6110, "title": "Supply validator deposits on chain"},
+      {"eip": 7002, "title": "Execution layer triggerable withdrawals"},
+      {"eip": 7251, "title": "Increase the MAX_EFFECTIVE_BALANCE"},
+      {"eip": 7549, "title": "Move committee index outside Attestation"},
+      {"eip": 7623, "title": "Increase calldata cost"},
+      {"eip": 7642, "title": "eth/69 - history expiry and simpler receipts"},
+      {"eip": 7685, "title": "General purpose execution layer requests"},
+      {"eip": 7691, "title": "Blob throughput increase"},
+      {"eip": 7702, "title": "Set Code for EOAs"},
+      {"eip": 7840, "title": "Add blob schedule to EL config files"}
+    ],
+    "osaka": [
+      {"eip": 7594, "title": "PeerDAS - Peer Data Availability Sampling"},
+      {"eip": 7642, "title": "eth/69 - history expiry and simpler receipts"},
+      {"eip": 7823, "title": "Set upper bounds for MODEXP"},
+      {"eip": 7825, "title": "Transaction Gas Limit Cap"},
+      {"eip": 7883, "title": "ModExp Gas Cost Increase"},
+      {"eip": 7892, "title": "Blob Parameter Only Hardforks"},
+      {"eip": 7910, "title": "eth_config JSON-RPC Method"},
+      {"eip": 7917, "title": "Deterministic proposer lookahead"},
+      {"eip": 7918, "title": "Blob base fee bounded by execution cost"},
+      {"eip": 7934, "title": "RLP Execution Block Size Limit"},
+      {"eip": 7935, "title": "Set default gas limit to 60M"},
+      {"eip": 7939, "title": "Count leading zeros (CLZ) opcode"},
+      {"eip": 7951, "title": "Precompile for secp256r1 Curve Support"}
+    ],
+    "bpo1": [],
+    "bpo2": [],
+    "amsterdam": [
+      {"eip": 7708, "title": "ETH transfers emit a log", "stage": "SFI", "status": "done"},
+      {"eip": 7732, "title": "Enshrined Proposer-Builder Separation", "stage": "SFI", "status": "missing"},
+      {"eip": 7778, "title": "Block Gas Accounting without Refunds", "stage": "SFI", "status": "done"},
+      {"eip": 7843, "title": "SLOTNUM opcode", "stage": "SFI", "status": "done"},
+      {"eip": 7928, "title": "Block-Level Access Lists", "stage": "SFI", "status": "done"},
+      {"eip": 7954, "title": "Increase Maximum Contract Size", "stage": "SFI", "status": "done"},
+      {"eip": 7976, "title": "Increase Calldata Floor Cost", "stage": "SFI", "status": "done"},
+      {"eip": 7981, "title": "Increase Access List Cost", "stage": "SFI", "status": "done"},
+      {"eip": 8024, "title": "Backward compatible SWAPN, DUPN, EXCHANGE", "stage": "SFI", "status": "done"},
+      {"eip": 8037, "title": "State Creation Gas Cost Increase", "stage": "SFI", "status": "done"},
+      {"eip": 2780, "title": "Reduce intrinsic transaction gas", "stage": "CFI", "status": "missing"},
+      {"eip": 7688, "title": "Forward compatible consensus data structures", "stage": "CFI", "status": "n/a"},
+      {"eip": 7904, "title": "General Repricing", "stage": "CFI", "status": "missing"},
+      {"eip": 7975, "title": "eth/70 - partial block receipt lists", "stage": "CFI", "status": "done"},
+      {"eip": 7997, "title": "Deterministic Factory Predeploy", "stage": "CFI", "status": "missing"},
+      {"eip": 8038, "title": "State-access gas cost increase", "stage": "CFI", "status": "missing"},
+      {"eip": 8045, "title": "Exclude slashed validators from proposing", "stage": "CFI", "status": "n/a"},
+      {"eip": 8061, "title": "Increase exit and consolidation churn", "stage": "CFI", "status": "n/a"},
+      {"eip": 8070, "title": "eth/72 - Sparse Blobpool", "stage": "CFI", "status": "done"},
+      {"eip": 8080, "title": "Let exits use the consolidation queue", "stage": "CFI", "status": "n/a"},
+      {"eip": 8136, "title": "Cell-Level Deltas for Data Column Broadcast", "stage": "CFI", "status": "n/a"},
+      {"eip": 8159, "title": "eth/71 - Block Access List Exchange", "stage": "CFI", "status": "done"},
+      {"eip": 8246, "title": "Remove SELFDESTRUCT Burn", "stage": "CFI", "status": "done"},
+      {"eip": 7610, "title": "Revert creation in case of non-empty storage", "stage": "PFI", "status": "done"},
+      {"eip": 7979, "title": "Call and Return Opcodes for the EVM", "stage": "PFI", "status": "missing"},
+      {"eip": 8163, "title": "Reserve EXTENSION (0xae) opcode", "stage": "PFI", "status": "missing"}
+    ]
+  }
+}

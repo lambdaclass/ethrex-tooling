@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Forks &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Fork schedule &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif fork_data %}
+
+{% if fork_data.next_fork %}
+<p style="margin-bottom:16px; color:#59c2ff;">
+  Next fork: <strong>{{ fork_data.next_fork }}</strong>
+  {% for f in fork_data.forks %}
+    {% if f.fork == fork_data.next_fork and f.status != 'active' %}
+      &mdash; {{ f.status }}
+    {% endif %}
+  {% endfor %}
+</p>
+{% endif %}
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Fork</th>
+      <th>Activation (UTC)</th>
+      <th>Status</th>
+      <th>Blob target</th>
+      <th>Blob max</th>
+      <th>EIPs</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in fork_data.forks %}
+    <tr>
+      <td>
+        {% if f.is_next %}
+          <span class="tag tag-next">{{ f.fork }}</span>
+        {% else %}
+          {{ f.fork }}
+        {% endif %}
+      </td>
+      <td>{{ f.time_str }}</td>
+      <td>
+        {% if f.status == "active" %}
+          <span class="tag tag-ok">active</span>
+        {% else %}
+          <span class="tag tag-warn">{{ f.status }}</span>
+        {% endif %}
+      </td>
+      <td>{{ f.blob_target if f.blob_target is not none else "-" }}</td>
+      <td>{{ f.blob_max if f.blob_max is not none else "-" }}</td>
+      <td class="eips-cell">
+        {% if f.eips %}
+          {% set staged = f.eips | selectattr('stage') | list %}
+          {% if staged %}
+            {# Pre-freeze fork: group by inclusion stage (SFI/CFI/PFI). #}
+            {% for stage, label, cls in [('SFI','Scheduled','stage-sfi'), ('CFI','Considered','stage-cfi'), ('PFI','Proposed','stage-pfi')] %}
+              {% set group = f.eips | selectattr('stage','equalto',stage) | list %}
+              {% if group %}
+                <div class="eip-stage">
+                  <span class="stage-label {{ cls }}" title="{{ label }} for Inclusion">{{ stage }}</span>
+                  <div class="eip-pills">
+                    {% for eip in group %}
+                      <a class="eip-pill" href="https://eips.ethereum.org/EIPS/eip-{{ eip.eip }}"
+                         target="_blank" title="{{ eip.title }}">EIP-{{ eip.eip }}</a>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+            <span class="eip-count">{{ f.eips | length }} EIPs (SFI/CFI/PFI; Declined excluded)</span>
+          {% else %}
+            {# Settled fork: flat shipped set. #}
+            <div class="eip-pills">
+              {% for eip in f.eips %}
+                <a class="eip-pill" href="https://eips.ethereum.org/EIPS/eip-{{ eip.eip }}"
+                   target="_blank" title="{{ eip.title }}">EIP-{{ eip.eip }}</a>
+              {% endfor %}
+            </div>
+            <span class="eip-count">{{ f.eips | length }} EIP{{ "s" if f.eips | length != 1 }}</span>
+          {% endif %}
+        {% else %}
+          <span style="color:#6b7682;">&mdash;</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% else %}
+<div class="info-box">No fork data for {{ devnet }}. Run: <code>dv collect {{ devnet }} forks</code></div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Proposals &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Proposals &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif proposals_data %}
+
+<p style="color:#9aa2ac; margin-bottom:16px;">Window: {{ proposals_data.window_label }}</p>
+
+<!-- Client comparison -->
+<h2>EL client comparison</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Client</th>
+      <th>Total</th>
+      <th>Canonical</th>
+      <th>Missed</th>
+      <th>Orphaned</th>
+      <th>Orphan rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in proposals_data.clients %}
+    <tr {% if c.is_ethrex %}style="background:#1a1230;"{% endif %}>
+      <td>
+        {% if c.is_ethrex %}
+          <span class="tag tag-ethrex">{{ c.client }}</span>
+        {% else %}
+          {{ c.client }}
+        {% endif %}
+      </td>
+      <td>{{ c.total }}</td>
+      <td><span class="tag tag-ok">{{ c.canonical }}</span></td>
+      <td>
+        {% if c.missed > 0 %}
+          <span class="tag tag-warn">{{ c.missed }}</span>
+        {% else %}
+          {{ c.missed }}
+        {% endif %}
+      </td>
+      <td>
+        {% if c.orphaned > 0 %}
+          <span class="tag tag-fail">{{ c.orphaned }}</span>
+        {% else %}
+          {{ c.orphaned }}
+        {% endif %}
+      </td>
+      <td>
+        {% if c.orphan_rate > 0.1 %}
+          <span class="tag tag-fail">{{ "%.1f%%" | format(c.orphan_rate * 100) }}</span>
+        {% elif c.orphan_rate > 0.05 %}
+          <span class="tag tag-warn">{{ "%.1f%%" | format(c.orphan_rate * 100) }}</span>
+        {% else %}
+          {{ "%.1f%%" | format(c.orphan_rate * 100) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Per-proposer table -->
+<h2>Per-proposer breakdown</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Proposer</th>
+      <th>Client</th>
+      <th>Total</th>
+      <th>Canonical</th>
+      <th>Missed</th>
+      <th>Orphaned</th>
+      <th>Orphan rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in proposals_data.proposers %}
+    <tr {% if p.is_ethrex %}style="background:#1a1230;"{% endif %}>
+      <td>
+        {% if p.is_ethrex %}
+          <a href="/node/{{ devnet }}/{{ p.name }}">
+            <span class="tag tag-ethrex">{{ p.name }}</span>
+          </a>
+        {% else %}
+          {{ p.name }}
+        {% endif %}
+      </td>
+      <td>{{ p.client }}</td>
+      <td>{{ p.total }}</td>
+      <td><span class="tag tag-ok">{{ p.canonical }}</span></td>
+      <td>
+        {% if p.missed > 0 %}
+          <span class="tag tag-warn">{{ p.missed }}</span>
+        {% else %}
+          {{ p.missed }}
+        {% endif %}
+      </td>
+      <td>
+        {% if p.orphaned > 0 %}
+          <span class="tag tag-fail">{{ p.orphaned }}</span>
+        {% else %}
+          {{ p.orphaned }}
+        {% endif %}
+      </td>
+      <td>
+        {% if p.orphan_rate > 0.1 %}
+          <span class="tag tag-fail">{{ "%.1f%%" | format(p.orphan_rate * 100) }}</span>
+        {% elif p.orphan_rate > 0.05 %}
+          <span class="tag tag-warn">{{ "%.1f%%" | format(p.orphan_rate * 100) }}</span>
+        {% else %}
+          {{ "%.1f%%" | format(p.orphan_rate * 100) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% else %}
+<div class="info-box">No proposal data. Run: <code>dv collect {{ devnet }} blobs</code></div>
+{% endif %}
+{% endblock %}

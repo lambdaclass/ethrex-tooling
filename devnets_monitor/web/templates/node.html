@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Node {{ node }} &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>
+  <span style="color:#9aa2ac; font-weight:normal; font-size:0.85em;">
+    <a href="/">Command Center</a> /
+    {{ devnet }} /
+  </span>
+  <span class="tag tag-ethrex">{{ node }}</span>
+</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif node_data %}
+
+{# --- Latest snapshot --- #}
+{% if node_data.latest %}
+{% set lat = node_data.latest %}
+<h2>Latest snapshot</h2>
+<div class="info-box" style="font-size:13px; line-height:1.9;">
+  <table style="width:auto; margin:0; border:none;">
+    <tbody>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">snapshot at</td>
+        <td style="border:none;">{{ lat.ts }}</td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">head block</td>
+        <td style="border:none;">{{ lat.head if lat.head is not none else "-" }}</td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">peers</td>
+        <td style="border:none;">{{ lat.peers if lat.peers is not none else "-" }}</td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">state@head</td>
+        <td style="border:none;">
+          {% if (lat.state_at_head or "") | lower == "yes" %}
+            <span class="tag tag-ok">yes</span>
+          {% else %}
+            <span class="tag tag-fail">{{ lat.state_at_head or "?" }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">syncing</td>
+        <td style="border:none;">
+          {% if lat.syncing == "yes" %}
+            <span class="tag tag-warn">syncing</span>
+          {% else %}
+            <span class="tag tag-ok">synced</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">commit</td>
+        <td style="border:none; font-family:monospace; font-size:12px;">
+          {% if lat.commit %}
+            <a href="{{ ethrex_commit_url(lat.commit) }}" target="_blank">{{ lat.commit[:12] }}</a>
+          {% else %}-{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">buildnum</td>
+        <td style="border:none;">{{ lat.buildnum or "-" }}</td>
+      </tr>
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">image</td>
+        <td style="border:none; font-size:12px; color:#9aa2ac; word-break:break-all;">{{ lat.image or "-" }}</td>
+      </tr>
+      {% if lat.restart is not none %}
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">restarts</td>
+        <td style="border:none;">{{ lat.restart }}</td>
+      </tr>
+      {% endif %}
+      {% if lat.cl_line %}
+      <tr>
+        <td style="color:#6b7682; padding:2px 12px 2px 0; border:none;">CL</td>
+        <td style="border:none; font-size:12px; color:#9aa2ac;">{{ lat.cl_line }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="info-box">No health snapshot found for this node. Run: <code>dv collect {{ devnet }} health</code></div>
+{% endif %}
+
+{# --- Events --- #}
+<h2>Events for this node</h2>
+{% if node_data.events %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Severity</th>
+      <th>Kind</th>
+      <th>Message</th>
+      <th>Count</th>
+      <th>First seen</th>
+      <th>Last seen</th>
+      <th>Resolved</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in node_data.events %}
+    <tr>
+      <td>
+        {% if e.active %}
+          <span class="tag tag-fail" style="font-size:11px;">active</span>
+        {% else %}
+          <span style="color:#9aa2ac; font-size:11px;">resolved</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if e.severity == "crit" %}
+          <span class="tag tag-fail">crit</span>
+        {% elif e.severity == "warn" %}
+          <span class="tag tag-warn">warn</span>
+        {% else %}
+          <span class="tag tag-info">{{ e.severity }}</span>
+        {% endif %}
+      </td>
+      <td style="font-size:12px;">{{ e.kind | humanize }}</td>
+      <td class="msg-cell">{{ e.message }}</td>
+      <td>{{ e.count }}</td>
+      <td class="ts-cell">{{ e.first_seen_str }}</td>
+      <td class="ts-cell">{{ e.last_seen_str }}</td>
+      <td class="ts-cell">{{ e.resolved_at_str if not e.active else "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="info-box">No events for this node.</div>
+{% endif %}
+
+{# --- Version history --- #}
+<h2>Version history</h2>
+{% if node_data.version_history %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Commit</th>
+      <th>Build</th>
+      <th>Image</th>
+      <th>Head</th>
+      <th>Peers</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in node_data.version_history %}
+    <tr>
+      <td class="ts-cell">{{ v.ts_str }}</td>
+      <td style="font-family:monospace; font-size:12px;">
+        {% if v.commit_full %}
+          <a href="{{ ethrex_commit_url(v.commit_full) }}" target="_blank">{{ v.commit }}</a>
+        {% else %}{{ v.commit }}{% endif %}
+      </td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ v.buildnum or "-" }}</td>
+      <td style="font-size:11px; color:#9aa2ac; word-break:break-all; white-space:normal; max-width:280px;">{{ v.image or "-" }}</td>
+      <td>{{ v.head if v.head is not none else "-" }}</td>
+      <td>{{ v.peers if v.peers is not none else "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="info-box">No version history (no commits recorded). Run: <code>dv collect {{ devnet }} health</code></div>
+{% endif %}
+
+{# --- Health history --- #}
+<h2>Health history (last 20 snapshots)</h2>
+{% if node_data.health_history %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Head</th>
+      <th>Peers</th>
+      <th>State@Head</th>
+      <th>Syncing</th>
+      <th>Build</th>
+      <th>Commit</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in node_data.health_history %}
+    <tr>
+      <td class="ts-cell">{{ h.ts }}</td>
+      <td>{{ h.head if h.head is not none else "-" }}</td>
+      <td>{{ h.peers if h.peers is not none else "-" }}</td>
+      <td>
+        {% if (h.state_at_head or "") | lower == "yes" %}
+          <span class="tag tag-ok" style="font-size:11px;">yes</span>
+        {% elif h.state_at_head %}
+          <span class="tag tag-fail" style="font-size:11px;">{{ h.state_at_head }}</span>
+        {% else %}-{% endif %}
+      </td>
+      <td>
+        {% if h.syncing == "yes" %}
+          <span class="tag tag-warn" style="font-size:11px;">syncing</span>
+        {% else %}
+          <span style="color:#9aa2ac; font-size:11px;">no</span>
+        {% endif %}
+      </td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ h.buildnum or "-" }}</td>
+      <td style="font-family:monospace; font-size:12px;">
+        {% if h.commit %}
+          <a href="{{ ethrex_commit_url(h.commit) }}" target="_blank">{{ h.commit[:7] }}</a>
+        {% else %}-{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="info-box">No health snapshots yet.</div>
+{% endif %}
+
+{# --- Proposals --- #}
+<h2>Proposals</h2>
+{% if node_data.proposals and node_data.proposals.total > 0 %}
+{% set prop = node_data.proposals %}
+<div class="info-box" style="font-size:13px; margin-bottom:12px;">
+  Total: {{ prop.total }} &nbsp;|&nbsp;
+  Canonical: <span class="tag tag-ok">{{ prop.canonical }}</span> &nbsp;|&nbsp;
+  Missed:
+  {% if prop.missed > 0 %}
+    <span class="tag tag-warn">{{ prop.missed }}</span>
+  {% else %}{{ prop.missed }}{% endif %}
+  &nbsp;|&nbsp;
+  Orphaned:
+  {% if prop.orphaned > 0 %}
+    <span class="tag tag-fail">{{ prop.orphaned }}</span>
+  {% else %}{{ prop.orphaned }}{% endif %}
+  {% if prop.total > 0 %}
+  &nbsp;|&nbsp;
+  Orphan rate:
+  {% set orphan_pct = (prop.orphaned / prop.total * 100) %}
+  {% if orphan_pct > 10 %}
+    <span class="tag tag-fail">{{ "%.1f%%" | format(orphan_pct) }}</span>
+  {% elif orphan_pct > 5 %}
+    <span class="tag tag-warn">{{ "%.1f%%" | format(orphan_pct) }}</span>
+  {% else %}
+    {{ "%.1f%%" | format(orphan_pct) }}
+  {% endif %}
+  {% endif %}
+</div>
+{% if prop.recent %}
+<h3>Recent slots (last {{ prop.recent | length }})</h3>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Slot</th>
+      <th>Status</th>
+      <th>Blobs</th>
+      <th>Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in prop.recent %}
+    <tr>
+      <td>{{ s.slot }}</td>
+      <td>
+        {% set st = (s.status or "") | lower %}
+        {% if st == "canonical" %}
+          <span class="tag tag-ok">canonical</span>
+        {% elif st in ("missing", "missed") %}
+          <span class="tag tag-warn">missed</span>
+        {% elif st == "orphaned" %}
+          <span class="tag tag-fail">orphaned</span>
+        {% else %}
+          <span style="color:#9aa2ac;">{{ s.status or "?" }}</span>
+        {% endif %}
+      </td>
+      <td>{{ s.blob_count if s.blob_count is not none else "-" }}</td>
+      <td class="ts-cell">{{ s.time }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% else %}
+<div class="info-box">No proposals found for this node in the database.</div>
+{% endif %}
+
+{# --- Live data note --- #}
+<div class="info-box" style="margin-top:24px;">
+  <strong>Live data</strong> (not shown here; DB-only view):
+  use <code>dv logs {{ devnet }} {{ node }}</code> for execution logs,
+  <code>dv peers {{ devnet }}</code> for live peer info,
+  <code>dv status {{ devnet }}</code> for live health over SSH.
+</div>
+
+{% else %}
+<div class="info-box">No data for node <strong>{{ node }}</strong> in devnet <strong>{{ devnet }}</strong>.</div>
+{% endif %}
+{% endblock %}

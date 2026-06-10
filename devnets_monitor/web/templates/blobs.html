@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Blobs &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Blob inclusion &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif blob_data %}
+
+<p style="color:#9aa2ac; margin-bottom:16px;">Window: {{ blob_data.window_label }}</p>
+
+<!-- Client comparison -->
+<h2>EL client comparison</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Client</th>
+      <th>Slots</th>
+      <th>Avg blobs</th>
+      <th>Total blobs</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in blob_data.clients %}
+    <tr>
+      <td>
+        {% if c.is_ethrex %}
+          <span class="tag tag-ethrex">{{ c.client }}</span>
+        {% else %}
+          {{ c.client }}
+        {% endif %}
+      </td>
+      <td>{{ c.slots }}</td>
+      <td>{{ "%.2f" | format(c.avg_blobs) }}</td>
+      <td>{{ c.total_blobs }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Per-proposer table -->
+<h2>Per-proposer</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Proposer</th>
+      <th>Slots</th>
+      <th>Avg blobs</th>
+      <th>Trend</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in blob_data.proposers %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td>{{ p.count }}</td>
+      <td>{{ "%.2f" | format(p.avg_blobs) }}</td>
+      <td><span class="sparkline">{{ p.sparkline }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Blob count over slots, binned average per client. Built from JSON via vanilla JS, CDN-free. -->
+<h2>Avg blobs per block over time (per client)</h2>
+<div class="chart-card">
+  <div class="chart-legend" id="blob-legend"></div>
+  <canvas id="blob-chart" height="260"></canvas>
+  <div class="chart-empty" id="blob-empty" style="display:none;">
+    No blob activity in this window (all clients at 0). Collect a window with blob flow to see the trend.
+  </div>
+</div>
+
+<script>
+(function() {
+  var series = {{ chart_json | safe }};
+  var palette = {
+    ethrex: '#bc8cff', nethermind: '#59c2ff', erigon: '#3fb950',
+    geth: '#d29922', besu: '#f78166', reth: '#39c5cf'
+  };
+  var fallback = ['#59c2ff', '#3fb950', '#d29922', '#bc8cff', '#f78166', '#39c5cf'];
+  var clients = Object.keys(series).filter(function(c){ return series[c] && series[c].length; });
+
+  function colorFor(c, i){ return palette[c] || fallback[i % fallback.length]; }
+
+  // slot range + global max
+  var minSlot = Infinity, maxSlot = -Infinity, maxBlobs = 0;
+  clients.forEach(function(c){
+    series[c].forEach(function(pt){
+      if (pt[0] < minSlot) minSlot = pt[0];
+      if (pt[0] > maxSlot) maxSlot = pt[0];
+      if (pt[1] > maxBlobs) maxBlobs = pt[1];
+    });
+  });
+
+  var legendEl = document.getElementById('blob-legend');
+  var emptyEl = document.getElementById('blob-empty');
+  var canvas = document.getElementById('blob-chart');
+
+  if (!clients.length || maxBlobs <= 0 || !isFinite(minSlot)) {
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    // still show the legend so the user sees which clients were present
+  }
+
+  // Legend (HTML, with swatches)
+  legendEl.innerHTML = clients.map(function(c, i){
+    return '<span class="item"><span class="swatch" style="background:' + colorFor(c, i) +
+           '"></span>' + c + '</span>';
+  }).join('');
+
+  if (!clients.length || maxBlobs <= 0 || !isFinite(minSlot)) return;
+
+  // Bin each client's points into N buckets, averaging blob_count per bucket.
+  var NB = 60;
+  var span = (maxSlot - minSlot) || 1;
+  function bin(pts){
+    var sum = new Array(NB).fill(0), cnt = new Array(NB).fill(0);
+    pts.forEach(function(pt){
+      var b = Math.min(NB - 1, Math.floor((pt[0] - minSlot) / span * NB));
+      sum[b] += pt[1]; cnt[b] += 1;
+    });
+    var out = [];
+    for (var i = 0; i < NB; i++) if (cnt[i]) out.push([i, sum[i] / cnt[i]]);
+    return out;
+  }
+
+  function draw(){
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = canvas.clientWidth || 900, cssH = 260;
+    canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    var PAD = { top: 14, right: 14, bottom: 26, left: 38 };
+    var cW = cssW - PAD.left - PAD.right, cH = cssH - PAD.top - PAD.bottom;
+    var yMax = Math.max(1, Math.ceil(maxBlobs));
+
+    function px(b){ return PAD.left + (b / (NB - 1)) * cW; }
+    function py(v){ return PAD.top + cH - (v / yMax) * cH; }
+
+    // gridlines + y labels
+    ctx.font = '11px monospace'; ctx.textAlign = 'right';
+    var ticks = Math.min(yMax, 6);
+    for (var t = 0; t <= ticks; t++){
+      var v = yMax * t / ticks, yy = py(v);
+      ctx.strokeStyle = '#1c2330'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD.left, yy); ctx.lineTo(PAD.left + cW, yy); ctx.stroke();
+      ctx.fillStyle = '#6b7682'; ctx.fillText(v.toFixed(v < 10 ? 1 : 0), PAD.left - 5, yy + 4);
+    }
+    // x labels (slot range)
+    ctx.fillStyle = '#6b7682';
+    ctx.textAlign = 'left';  ctx.fillText('slot ' + minSlot, PAD.left, cssH - 8);
+    ctx.textAlign = 'right'; ctx.fillText(String(maxSlot), PAD.left + cW, cssH - 8);
+
+    clients.forEach(function(c, i){
+      var b = bin(series[c]);
+      if (!b.length) return;
+      var color = colorFor(c, i);
+      ctx.strokeStyle = color; ctx.lineWidth = c === 'ethrex' ? 2.5 : 1.5;
+      ctx.beginPath();
+      b.forEach(function(pt, j){ var x = px(pt[0]), y = py(pt[1]); if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+    });
+  }
+
+  draw();
+  var t; window.addEventListener('resize', function(){ clearTimeout(t); t = setTimeout(draw, 150); });
+}());
+</script>
+
+{% endif %}
+{% endblock %}

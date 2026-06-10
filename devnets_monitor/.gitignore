@@ -1,0 +1,33 @@
+# No secrets, ever. The entries below guard by filename; a pre-commit content
+# audit (rg for xatu/jwt/Bearer/password/secret/BEGIN KEY) is the real gate.
+# SSH keys, JWTs, and Xatu credentials live only on hosts, never in this repo.
+
+# Data store + caches (regenerable)
+data/*.sqlite
+data/*.sqlite-*
+data/*.parquet
+.cache/
+tmp/
+
+# Secrets / captured run commands (may embed tokens or host internals)
+*.secret
+*.jwt
+*xatu*cred*
+*credentials*
+runlike-*.txt
+run-*.sh
+run-execution*.txt
+
+# Per-devnet incident history (may embed host internals); keep only the template
+docs/history/*.md
+!docs/history/_template.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.uv/
+
+# Editor / OS
+.DS_Store
+*.swp

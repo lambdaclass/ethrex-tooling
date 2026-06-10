@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}ePBS -- {{ devnet }}{% endblock %}
+
+{% block content %}
+<h1>ePBS Panel (EIP-7732) -- {{ devnet }}</h1>
+<p style="color:#9aa2ac;margin-bottom:16px;">
+  Bid count and PTC vote data per slot.
+  Collected via <code>dv collect {{ devnet }} slow</code>.
+  Ethrex-proposed slots are highlighted.
+</p>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif epbs_data %}
+
+<div class="section">
+  <h2>Summary</h2>
+  <table style="width:auto;">
+    <tr><th>Total entries</th><td>{{ epbs_data.total }}</td></tr>
+    <tr><th>Ethrex entries</th><td>{{ epbs_data.ethrex_rows | length }}</td></tr>
+    <tr><th>Avg PTC size</th><td>{{ epbs_data.avg_ptc_size }}</td></tr>
+    <tr><th>Avg PTC vote count</th><td>{{ epbs_data.avg_vote_count }}</td></tr>
+    <tr><th>Avg non-voter %</th><td>{{ epbs_data.avg_nonvoter_pct }}</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Recent slots (newest first)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Slot</th>
+          <th>Bids</th>
+          <th>PTC size</th>
+          <th>PTC votes</th>
+          <th>Non-voter %</th>
+          <th>Payload revealed</th>
+          <th>Proposer</th>
+          <th>Fetched</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in epbs_data.rows %}
+        <tr {% if r.is_ethrex %}style="background:#1a1030;"{% endif %}>
+          <td>
+            {{ r.slot }}
+            {% if r.is_ethrex %}<span class="tag tag-ethrex" style="margin-left:4px;">ethrex</span>{% endif %}
+          </td>
+          <td>{{ r.bid_count }}</td>
+          <td>{{ r.ptc_size if r.ptc_size is not none else "-" }}</td>
+          <td>{{ r.ptc_vote_count if r.ptc_vote_count is not none else "-" }}</td>
+          <td>
+            {% if r.ptc_nonvoter_pct is not none %}
+              {% if r.ptc_nonvoter_pct > 10 %}
+                <span class="tag tag-warn">{{ r.ptc_nonvoter_pct }}%</span>
+              {% else %}
+                {{ r.ptc_nonvoter_pct }}%
+              {% endif %}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ r.payload_revealed }}</td>
+          <td>{{ r.proposer_name }}</td>
+          <td style="color:#9aa2ac;">{{ r.fetched_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="info-box">No ePBS data. Run: <code>dv collect {{ devnet }} slow</code></div>
+{% endif %}
+{% endblock %}

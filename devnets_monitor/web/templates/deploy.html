@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy &mdash; {{ devnet }}{% endblock %}
+
+{% set current_devnet = devnet %}
+{% set devnet_names = [devnet] %}
+
+{% block content %}
+<h1>Deploy &mdash; {{ devnet }}</h1>
+
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif deploy_data %}
+
+<!-- GitHub gap -->
+{% if deploy_data.gap %}
+<h2>GitHub gap (deployed vs lambdaclass/ethrex main)</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Node</th>
+      <th>Deployed commit</th>
+      <th>Main commit</th>
+      <th>Commits behind</th>
+      <th>Checked at</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for g in deploy_data.gap %}
+    <tr>
+      <td><a href="/node/{{ devnet }}/{{ g.node }}">{{ g.node }}</a></td>
+      <td style="font-family:monospace; font-size:12px;">
+        <a href="{{ deploy_data.gh_repo }}/commit/{{ g.deployed_commit_full }}" target="_blank">{{ g.deployed_commit }}</a>
+      </td>
+      <td style="font-family:monospace; font-size:12px;">{{ g.main_commit }}</td>
+      <td>
+        {% if g.commits_behind is not none %}
+          {% if g.commits_behind == 0 %}
+            <span class="tag tag-ok">up to date</span>
+          {% elif g.commits_behind <= 5 %}
+            <span class="tag tag-warn">{{ g.commits_behind }}</span>
+          {% else %}
+            <span class="tag tag-fail">{{ g.commits_behind }}</span>
+          {% endif %}
+        {% else %}
+          <span style="color:#9aa2ac;">? (run dv collect slow)</span>
+        {% endif %}
+      </td>
+      <td style="color:#9aa2ac; font-size:12px;">{{ g.checked_at or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="info-box">No GitHub gap data. Run: <code>dv collect {{ devnet }} slow</code></div>
+{% endif %}
+
+<!-- Version timeline per node -->
+{% if deploy_data.nodes %}
+<h2>Version timeline (from health snapshots)</h2>
+{% for node, versions in deploy_data.nodes.items() | sort %}
+<h3><a href="/node/{{ devnet }}/{{ node }}" style="color:#9aa2ac;">{{ node }}</a></h3>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Commit</th>
+      <th>Build</th>
+      <th>Head</th>
+      <th>Peers</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in versions %}
+    <tr>
+      <td style="color:#9aa2ac; font-size:12px; white-space:nowrap;">{{ v.ts_str }}</td>
+      <td style="font-family:monospace; font-size:12px;">
+        {% if v.commit_full %}
+          <a href="{{ ethrex_commit_url(v.commit_full) }}" target="_blank">{{ v.commit }}</a>
+        {% else %}{{ v.commit }}{% endif %}
+      </td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ v.buildnum or "-" }}</td>
+      <td>{{ v.head if v.head is not none else "-" }}</td>
+      <td>{{ v.peers if v.peers is not none else "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- Events overlay -->
+{% if deploy_data.events %}
+<h2>Recent events</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Severity</th>
+      <th>Kind</th>
+      <th>Node</th>
+      <th>Message</th>
+      <th>Last seen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in deploy_data.events %}
+    <tr>
+      <td>
+        {% if e.severity == "crit" %}
+          <span class="tag tag-fail">crit</span>
+        {% elif e.severity == "warn" %}
+          <span class="tag tag-warn">warn</span>
+        {% else %}
+          <span style="color:#9aa2ac; font-size:12px;">{{ e.severity }}</span>
+        {% endif %}
+      </td>
+      <td style="font-size:12px;">{{ e.kind }}</td>
+      <td style="font-size:12px; color:#9aa2ac;">{{ e.node or "-" }}</td>
+      <td class="msg-cell">{{ e.message }}</td>
+      <td class="ts-cell">{{ e.ts_str }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% else %}
+<div class="info-box">No deploy data. Run: <code>dv collect {{ devnet }} health</code></div>
+{% endif %}
+{% endblock %}

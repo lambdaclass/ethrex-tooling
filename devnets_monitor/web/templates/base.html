@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}ethrex devnets{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0b0e14;
+      color: #bfbdb6;
+      font-family: "Consolas", "Menlo", "DejaVu Sans Mono", monospace;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    a { color: #59c2ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header {
+      background: #0f1520;
+      border-bottom: 1px solid #273341;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    header .brand {
+      font-weight: bold;
+      font-size: 1.05em;
+      color: #ffb454;
+    }
+    header .brand a { color: inherit; }
+
+    nav { display: flex; gap: 14px; flex-wrap: wrap; }
+    nav a { color: #9aa2ac; font-size: 14px; }
+    nav a:hover { color: #bfbdb6; }
+    nav .sep { color: #273341; }
+
+    .devnet-picker {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .devnet-picker select {
+      background: #0b0e14;
+      border: 1px solid #273341;
+      color: #bfbdb6;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    main { padding: 20px; max-width: 1760px; margin: 0 auto; }
+
+    h1, h2, h3 {
+      color: #ffb454;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+    h1 { font-size: 1.3em; margin-bottom: 14px; }
+    h2 { font-size: 1.1em; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #1c2330; padding-bottom: 4px; }
+    h3 { font-size: 1em; margin-top: 16px; color: #d2a6ff; }
+
+    .error-box {
+      background: #0f1520;
+      border: 1px solid #f85149;
+      border-radius: 4px;
+      padding: 12px 16px;
+      color: #f85149;
+      margin: 20px 0;
+    }
+
+    .info-box {
+      background: #0f1520;
+      border: 1px solid #273341;
+      border-radius: 4px;
+      padding: 12px 16px;
+      color: #9aa2ac;
+      margin: 20px 0;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0 20px 0;
+    }
+    th {
+      background: #0f1520;
+      color: #9aa2ac;
+      font-weight: normal;
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid #273341;
+      white-space: nowrap;
+    }
+    td {
+      padding: 5px 10px;
+      border-bottom: 1px solid #1c2330;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #0f1520; }
+
+    .tag {
+      display: inline-block;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .tag-ok   { background: #1e2b14; color: #aad94c; }
+    .tag-warn { background: #332600; color: #ffb454; }
+    .tag-fail { background: #331519; color: #f26d78; }
+    .tag-next { background: #102536; color: #59c2ff; }
+    .tag-info { background: #102536; color: #73d0ff; }
+    .tag-ethrex { background: #281f3a; color: #d2a6ff; }
+
+    .sparkline { letter-spacing: 1px; }
+
+    /* Horizontal scroll guard: any wide table scrolls within its wrapper
+       instead of pushing the page off screen. */
+    .table-wrap { overflow-x: auto; max-width: 100%; }
+
+    /* EIP cell: allow wrapping (overrides the global td nowrap) and render
+       EIPs as wrapping pills so long fork lists (e.g. glamsterdam) stay on screen. */
+    td.eips-cell { white-space: normal; }
+    .eip-pills { display: flex; flex-wrap: wrap; gap: 4px 6px; max-width: 760px; }
+    .eip-pill {
+      display: inline-block;
+      background: #0f1520;
+      border: 1px solid #273341;
+      border-radius: 3px;
+      padding: 0 6px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .eip-count { color: #9aa2ac; font-size: 12px; display: block; margin-top: 6px; }
+    .eip-stage { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .stage-label {
+      flex: 0 0 auto; font-size: 11px; font-weight: bold; border-radius: 3px;
+      padding: 1px 6px; margin-top: 1px;
+    }
+    .stage-sfi { background: #1a4731; color: #3fb950; }
+    .stage-cfi { background: #3d2b00; color: #d29922; }
+    .stage-pfi { background: #1a3050; color: #59c2ff; }
+
+    /* Chart */
+    .chart-card {
+      background: #0f1520;
+      border: 1px solid #273341;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 8px 0 20px 0;
+    }
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #9aa2ac;
+    }
+    .chart-legend .item { display: flex; align-items: center; gap: 6px; }
+    .chart-legend .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+    .chart-empty { color: #9aa2ac; padding: 24px 0; text-align: center; }
+
+    /* Events: let the message column wrap instead of forcing the table off-screen */
+    td.msg-cell { white-space: normal; max-width: 520px; word-break: break-word; }
+    td.ts-cell { white-space: nowrap; color: #9aa2ac; font-size: 12px; }
+    .ev-detail {
+      background: #0b0e14; padding: 6px 10px 8px 28px;
+      font-size: 12px; color: #9aa2ac;
+    }
+    .ev-detail .kv { display: inline-block; margin-right: 16px; max-width: 100%; }
+    .ev-detail .k { color: #6b7682; }
+    .ev-detail code {
+      background: #0f1520; border: 1px solid #1c2330; border-radius: 3px;
+      padding: 0 4px; word-break: break-all; white-space: normal;
+    }
+
+    pre.incident-log {
+      background: #0f1520;
+      border: 1px solid #273341;
+      border-radius: 4px;
+      padding: 16px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      color: #bfbdb6;
+    }
+
+    /* Rendered markdown (incident history) */
+    .md-body {
+      background: #0f1520;
+      border: 1px solid #273341;
+      border-radius: 6px;
+      padding: 16px 22px;
+      line-height: 1.65;
+    }
+    .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+      color: #d6d2c8; margin: 20px 0 10px; line-height: 1.3;
+    }
+    .md-body h1 { font-size: 1.4em; }
+    .md-body h2 { font-size: 1.2em; border-bottom: 1px solid #1c2330; padding-bottom: 5px; }
+    .md-body h3 { font-size: 1.05em; color: #bfbdb6; }
+    .md-body > *:first-child { margin-top: 0; }
+    .md-body p { margin: 8px 0; }
+    .md-body ul, .md-body ol { margin: 8px 0 8px 24px; }
+    .md-body li { margin: 3px 0; }
+    .md-body code {
+      background: #0b0e14; border: 1px solid #1c2330; border-radius: 3px;
+      padding: 1px 5px; font-size: 0.9em;
+    }
+    .md-body pre {
+      background: #0b0e14; border: 1px solid #1c2330; border-radius: 4px;
+      padding: 12px 14px; overflow-x: auto;
+    }
+    .md-body pre code { background: none; border: none; padding: 0; }
+    .md-body table { width: auto; max-width: 100%; }
+    .md-body blockquote {
+      border-left: 3px solid #273341; margin: 10px 0; padding: 2px 14px; color: #9aa2ac;
+    }
+    .md-body a { color: #59c2ff; }
+    .md-body strong { color: #d6d2c8; }
+    .md-body hr { border: none; border-top: 1px solid #1c2330; margin: 18px 0; }
+
+    footer {
+      margin-top: 40px;
+      padding: 16px 20px;
+      border-top: 1px solid #1c2330;
+      color: #6b7682;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .section { margin-bottom: 32px; }
+
+    canvas { display: block; width: 100%; }
+  </style>
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+<header>
+  <div class="brand"><a href="/">ethrex-devnets</a></div>
+  <nav>
+    {% if current_devnet is defined and current_devnet %}
+      <a href="/blobs/{{ current_devnet }}">Blobs</a>
+      <span class="sep">|</span>
+      <a href="/exectime/{{ current_devnet }}">Exec time</a>
+      <span class="sep">|</span>
+      <a href="/forks/{{ current_devnet }}">Forks</a>
+      <span class="sep">|</span>
+      <a href="/clients/{{ current_devnet }}">Clients</a>
+      <span class="sep">|</span>
+      <a href="/hive/{{ current_devnet }}">Hive</a>
+      <span class="sep">|</span>
+      <a href="/incidents/{{ current_devnet }}">Incidents</a>
+      <span class="sep">|</span>
+      <a href="/events/{{ current_devnet }}">Events</a>
+      <span class="sep">|</span>
+      <a href="/network/{{ current_devnet }}">Network</a>
+      <span class="sep">|</span>
+      <a href="/proposals/{{ current_devnet }}">Proposals</a>
+      <span class="sep">|</span>
+      <a href="/bal/{{ current_devnet }}">BAL</a>
+      <span class="sep">|</span>
+      <a href="/epbs/{{ current_devnet }}">ePBS</a>
+      <span class="sep">|</span>
+      <a href="/eips/{{ current_devnet }}">EIP tracker</a>
+      <span class="sep">|</span>
+      <a href="/spamoor/{{ current_devnet }}">Spamoor</a>
+      <span class="sep">|</span>
+      <a href="/assertoor/{{ current_devnet }}">Assertoor</a>
+      <span class="sep">|</span>
+      <a href="/deploy/{{ current_devnet }}">Deploy</a>
+    {% else %}
+      <a href="/">Dashboard</a>
+    {% endif %}
+  </nav>
+  {% if devnet_names is defined and devnet_names %}
+  <div class="devnet-picker">
+    <label for="dn-select" style="color:#9aa2ac;font-size:13px;">devnet:</label>
+    <select id="dn-select" onchange="window.location='/' + (this.value ? 'blobs/' + this.value : '')">
+      <option value="">-- pick --</option>
+      {% for dn in devnet_names %}
+      <option value="{{ dn }}" {% if current_devnet is defined and current_devnet == dn %}selected{% endif %}>{{ dn }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+</header>
+<main>
+  {% block content %}{% endblock %}
+</main>
+<footer>ethrex-devnets dashboard &mdash; read-only &mdash; localhost only &mdash; no auth</footer>
+</body>
+</html>
