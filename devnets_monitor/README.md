@@ -1,4 +1,4 @@
-# devnets_monitor
+# Devnets Monitor
 
 Ops + monitoring toolkit for [ethrex](https://github.com/lambdaclass/ethrex) on
 [ethpandaops](https://ethpandaops.io) devnets, living in the `devnets_monitor/`
