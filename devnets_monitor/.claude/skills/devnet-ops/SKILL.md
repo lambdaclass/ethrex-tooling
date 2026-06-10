@@ -5,9 +5,11 @@ description: Operate, inspect, monitor, and debug ethrex EL nodes on ethpandaops
 
 # devnet-ops
 
-This repo (`ethrex-devnets`) is the single home for ethrex devnet ops + monitoring.
-Procedures, per-devnet history, and the `dv` CLI all live here. Paths below are
-relative to the repo root.
+This ethrex devnet ops + monitoring toolkit lives in the `devnets_monitor/`
+directory of the `ethrex-tooling` repo (ported from the standalone `ethrex-devnets`
+repo). It is self-contained: procedures, per-devnet history, and the `dv` CLI all
+live here. Run every command from `devnets_monitor/` (`cd devnets_monitor` first);
+all paths below are relative to that directory.
 
 Before any devnet operation or answering a question about a node/incident, READ:
 
@@ -17,13 +19,14 @@ Before any devnet operation or answering a question about a node/incident, READ:
    container layout, build & deploy, debug logging, wipe & resync, Dora API).
    Substitute `<devnet>` with the target network.
 3. `docs/history/<devnet>.md` — per-devnet facts and incident history (roster, fork
-   schedule, commit map, known issues with root cause + recovery). For
-   glamsterdam-devnet-5 this is `docs/history/glamsterdam-devnet-5.md`. If a devnet
-   has no history file, create one from `docs/history/_template.md` as you learn facts.
+   schedule, commit map, known issues with root cause + recovery). These files are
+   gitignored (local-only; they embed host internals), so a freshly-cloned tree has
+   none. If a devnet has no history file, create one from
+   `docs/history/_template.md` as you learn facts.
 
 ## The `dv` CLI
 
-Run from the repo root via `uv run dv ...`. Read-only by default; only `dv wipe`
+Run from `devnets_monitor/` via `uv run dv ...`. Read-only by default; only `dv wipe`
 mutates (gated behind `--yes`). Target devnet resolves: explicit arg > `$DEVNET`
 env > `config/devnets.yaml` `default`.
 
@@ -61,6 +64,6 @@ uv run dv wipe   <devnet> <node> --yes # MUTATING: recover a wedged EL
 ## Maintenance
 
 When you discover a new incident, divergence, or devnet fact, append a dated entry
-to `docs/history/<devnet>.md` (and `docs/devnet-ops.md` if a procedure changed) and
-commit it. The fork -> EIP map is `config/eips.json` (sourced via eipmcp; re-run
-`get_hardfork` to refresh).
+to `docs/history/<devnet>.md` (local-only, gitignored; do not commit it). If a
+procedure changed, update `docs/devnet-ops.md` and commit that. The fork -> EIP map
+is `config/eips.json` (sourced via eipmcp; re-run `get_hardfork` to refresh).

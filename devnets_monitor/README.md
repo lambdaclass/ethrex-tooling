@@ -1,9 +1,13 @@
-# ethrex-devnets
+# devnets_monitor
 
 Ops + monitoring toolkit for [ethrex](https://github.com/lambdaclass/ethrex) on
-[ethpandaops](https://ethpandaops.io) devnets. Single home for the devnet ops
-runbook, per-devnet incident history, and the tooling that watches ethrex as new
-forks (glamsterdam, BAL, fusaka, ...) roll out.
+[ethpandaops](https://ethpandaops.io) devnets, living in the `devnets_monitor/`
+directory of `ethrex-tooling` (ported from the standalone `ethrex-devnets` repo).
+Single home for the devnet ops runbook, per-devnet incident history, and the
+tooling that watches ethrex as new forks (glamsterdam, BAL, fusaka, ...) roll out.
+
+Self-contained: it has its own Python package (`uv`-managed) and `dv` CLI; run all
+commands from this directory (`cd devnets_monitor`).
 
 Generic across devnets: everything is parameterized by devnet name
 (`glamsterdam-devnet-5`, `bal-devnet-3`, ...). Read-only by default; every
