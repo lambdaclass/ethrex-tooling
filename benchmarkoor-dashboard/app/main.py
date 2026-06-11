@@ -355,7 +355,8 @@ def test_detail(request: Request, suite: str, name: str):
     )
 
 
-_PHASE_COLORS = {"exec_ms": "#e6007a", "merkle_ms": "#4aa3ff", "store_ms": "#2ecc71"}
+# soft, analogous cool palette that sits calmly on the dark panel
+_PHASE_COLORS = {"exec_ms": "#6e8fd6", "merkle_ms": "#8c7bd0", "store_ms": "#4fb0a3"}
 
 
 @app.get("/run/{run_id}", response_class=HTMLResponse)
@@ -384,12 +385,17 @@ def run_logs(request: Request, run_id: str):
             fig.add_trace(
                 go.Bar(
                     y=labels, x=top[m], name=m.removesuffix("_ms"),
-                    orientation="h", marker_color=_PHASE_COLORS[m],
+                    orientation="h",
+                    marker=dict(
+                        color=_PHASE_COLORS[m],
+                        line=dict(color="#181b24", width=1),  # panel-colored separators
+                    ),
                 )
             )
         fig.update_layout(
-            barmode="stack", height=28 * len(top) + 120, hovermode="y unified",
-            margin=dict(l=10, r=10, t=10, b=40), xaxis_title="ms (per test block)",
+            barmode="stack", bargap=0.35, height=26 * len(top) + 120,
+            hovermode="y unified", margin=dict(l=10, r=10, t=10, b=40),
+            xaxis_title="ms (per test block)",
             legend=dict(orientation="h", y=-0.12, font=dict(size=12)),
         )
     else:
