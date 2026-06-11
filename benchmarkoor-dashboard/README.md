@@ -47,7 +47,15 @@ Machine-readable JSON (all take `?suite=<hash>`, default = latest compute suite)
 - `GET /api/coverage` — tests not run by the home client.
 - `GET /api/commits` — current home-client build + per-commit aggregate-throughput timeline.
 - `GET /api/fkv` — FlatKeyValue catch-up summary for the home client's current run.
+- `GET /api/headroom` — aggregate Mgas/s if ethrex matched the fastest client per test (+ gain %), and the deficit portfolio by phase/resource.
+- `GET /api/merkle` — tests where merkleization runs serial (high merkle, low overlap).
+- `GET /api/failures` — current-run instances with failing tests.
+- `GET /api/regressions?threshold_pct=3` — home-client commit-over-commit aggregate regressions (detection only; wire Slack/webhook externally).
+- `GET /api/freshness` — snapshot age + live check of whether the API has newer runs.
 - `GET /run/{run_id}` + `GET /api/runs/{run_id}/block_logs` — lazy per-run block telemetry (live fetch, nothing stored).
+
+Pages: Overview, Leaderboard, Coverage, Compare, **Merkle** (parallelism opportunities),
+**Scaling** (Mgas/s vs gas per op), Trends, plus `/run/{id}` and `/agent.md`.
 
 `time_lost_ms` ranks by recoverable wall-clock, not Mgas/s ratio (which over-weights tiny tests).
 

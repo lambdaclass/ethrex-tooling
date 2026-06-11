@@ -60,8 +60,11 @@ MUTED_BAR = "#5f6b85"  # non-home bars on the leaderboard (ethrex is the only hi
 DARK_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#e6e8ee", size=14,
-              family='Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif'),
+    font=dict(
+        color="#e6e8ee",
+        size=14,
+        family='Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif',
+    ),
     title_font=dict(color="#e6e8ee", size=16),
     xaxis=dict(gridcolor="#262a36", zerolinecolor="#262a36", linecolor="#262a36"),
     yaxis=dict(gridcolor="#262a36", zerolinecolor="#262a36", linecolor="#262a36"),
@@ -87,6 +90,7 @@ def _ctx(request: Request, conn, suite_hash: str | None, **extra):
         "suite_hash": suite_hash,
         "home": HOME,
         "last_sync": int(last_sync) if last_sync else None,
+        "newest_run_ts": int(db.get_meta(conn, "newest_run_ts") or 0),
         "now": int(time.time()),
         **extra,
     }
@@ -118,6 +122,9 @@ def overview(request: Request):
                 "below": below,
                 "home_rank": home_rank,
                 "n_instances": 0 if lb.empty else len(lb),
+                "headroom": queries.headroom(conn, s["suite_hash"]),
+                "portfolio": queries.bottleneck_portfolio(conn, s["suite_hash"]),
+                "failures": queries.failures(conn, s["suite_hash"]),
             }
         )
     live = []
@@ -361,6 +368,72 @@ def test_detail(request: Request, suite: str, name: str):
     )
 
 
+@app.get("/op", response_class=HTMLResponse)
+def op_scaling_page(request: Request, suite: str | None = None, op: str | None = None):
+    """Gas-scaling: Mgas/s vs benchmark gas for one op, home vs best other."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    ops = queries.list_ops(conn, sh) if sh else []
+    if not op and ops:
+        op = ops[0]
+    df = queries.op_scaling(conn, sh, op) if (sh and op) else None
+    fig = None
+    if df is not None and not df.empty:
+        fig = go.Figure()
+        series = [c for c in config.CLIENTS if c in df.columns] + (
+            ["best_other"] if "best_other" in df.columns else []
+        )
+        for c in series:
+            is_home = c == HOME
+            fig.add_trace(
+                go.Scatter(
+                    x=df["benchmark_mgas"],
+                    y=df[c],
+                    name=c,
+                    mode="lines+markers",
+                    line=dict(
+                        color=COLORS.get(c, "#8b90a0")
+                        if c != "best_other"
+                        else "#cdd3df",
+                        width=3 if is_home else 1.6,
+                        dash="dot" if c == "best_other" else "solid",
+                    ),
+                )
+            )
+        fig.update_layout(
+            height=460,
+            hovermode="x unified",
+            margin=dict(l=10, r=10, t=10, b=40),
+            xaxis_title="benchmark gas (M)",
+            yaxis_title="Mgas/s",
+            legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+        )
+    return render(
+        request,
+        "op.html",
+        _ctx(
+            request,
+            conn,
+            sh,
+            op=op,
+            ops=ops,
+            fig=fig_json(fig) if fig is not None else None,
+        ),
+    )
+
+
+@app.get("/merkle", response_class=HTMLResponse)
+def merkle_page(request: Request, suite: str | None = None):
+    """Merkle parallelism: tests whose merkleization runs largely serial."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    df = queries.merkle_opportunities(conn, sh) if sh else None
+    rows = [] if df is None or df.empty else df.to_dict("records")
+    return render(request, "merkle.html", _ctx(request, conn, sh, rows=rows))
+
+
 # soft, analogous cool palette that sits calmly on the dark panel
 _PHASE_COLORS = {"exec_ms": "#6e8fd6", "merkle_ms": "#8c7bd0", "store_ms": "#4fb0a3"}
 
@@ -393,7 +466,9 @@ def run_logs(request: Request, run_id: str):
         for m in populated:
             fig.add_trace(
                 go.Bar(
-                    y=labels, x=top[m], name=m.removesuffix("_ms"),
+                    y=labels,
+                    x=top[m],
+                    name=m.removesuffix("_ms"),
                     orientation="h",
                     marker=dict(
                         color=_PHASE_COLORS[m],
@@ -402,8 +477,11 @@ def run_logs(request: Request, run_id: str):
                 )
             )
         fig.update_layout(
-            barmode="stack", bargap=0.55, height=20 * len(top) + 110,
-            hovermode="y unified", margin=dict(l=10, r=10, t=10, b=40),
+            barmode="stack",
+            bargap=0.55,
+            height=20 * len(top) + 110,
+            hovermode="y unified",
+            margin=dict(l=10, r=10, t=10, b=40),
             xaxis_title="ms (per test block)",
             legend=dict(orientation="h", y=-0.12, font=dict(size=12)),
         )
@@ -414,17 +492,26 @@ def run_logs(request: Request, run_id: str):
         rows = _fetch_block_logs(run_id)
         n = len(rows)
         if rows:
-            df = pd.DataFrame(rows).sort_values(["block_number", "id"]).reset_index(drop=True)
+            df = (
+                pd.DataFrame(rows)
+                .sort_values(["block_number", "id"])
+                .reset_index(drop=True)
+            )
             df["seq"] = range(1, len(df) + 1)
             populated = [
-                m for m in _BLOCKLOG_METRICS if df.get(m) is not None and df[m].abs().sum() > 0
+                m
+                for m in _BLOCKLOG_METRICS
+                if df.get(m) is not None and df[m].abs().sum() > 0
             ]
             fig = go.Figure()
             for m in populated:
                 fig.add_trace(go.Scatter(x=df["seq"], y=df[m], name=m, mode="lines"))
             fig.update_layout(
-                height=480, hovermode="x unified", margin=dict(l=10, r=10, t=10, b=40),
-                xaxis_title="block / test sequence", yaxis_title="ms",
+                height=480,
+                hovermode="x unified",
+                margin=dict(l=10, r=10, t=10, b=40),
+                xaxis_title="block / test sequence",
+                yaxis_title="ms",
                 legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
             )
     return render(
@@ -552,6 +639,96 @@ def api_fkv(suite: str | None = None):
     )
 
 
+@app.get("/api/headroom")
+def api_headroom(suite: str | None = None):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    return JSONResponse(
+        {
+            "suite_hash": sh,
+            "home": HOME,
+            "headroom": queries.headroom(conn, sh) if sh else {},
+            "portfolio": queries.bottleneck_portfolio(conn, sh) if sh else {},
+        }
+    )
+
+
+@app.get("/api/merkle")
+def api_merkle(suite: str | None = None, limit: int = 40):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    df = queries.merkle_opportunities(conn, sh, limit) if sh else None
+    return JSONResponse({"suite_hash": sh, "home": HOME, "tests": _records(df)})
+
+
+@app.get("/api/failures")
+def api_failures(suite: str | None = None):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    return JSONResponse(
+        {"suite_hash": sh, "failures": queries.failures(conn, sh) if sh else []}
+    )
+
+
+@app.get("/api/regressions")
+def api_regressions(suite: str | None = None, threshold_pct: float = 3.0):
+    """Home-client commit-over-commit aggregate regressions beyond threshold_pct.
+    Detection only — delivery (Slack/webhook) is external."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    regs = []
+    if sh:
+        tl = queries.commit_timeline(conn, sh)
+        for r in tl.to_dict("records"):
+            d = r.get("delta_vs_prev")
+            if (
+                d == d
+                and r["mean_mgas"]
+                and (d / r["mean_mgas"] * 100) <= -threshold_pct
+            ):
+                regs.append(
+                    {
+                        "sha": r["sha"][:9],
+                        "message": r["message"],
+                        "mean_mgas": round(r["mean_mgas"], 1),
+                        "delta_pct": round(d / r["mean_mgas"] * 100, 1),
+                    }
+                )
+    return JSONResponse(
+        {"suite_hash": sh, "threshold_pct": threshold_pct, "regressions": regs}
+    )
+
+
+@app.get("/api/freshness")
+def api_freshness():
+    """Snapshot age + live check of the API's newest run (is the snapshot behind?)."""
+    conn = db.connect()
+    db.init(conn)
+    last_sync = int(db.get_meta(conn, "last_sync") or 0)
+    snap_newest = int(db.get_meta(conn, "newest_run_ts") or 0)
+    api_newest = None
+    try:
+        with Client() as c:
+            rows = c.query("runs", {"order": "timestamp.desc", "limit": 1})
+            api_newest = rows[0]["timestamp"] if rows else None
+    except Exception:
+        pass
+    behind = (api_newest - snap_newest) if (api_newest and snap_newest) else None
+    return JSONResponse(
+        {
+            "last_sync": last_sync,
+            "snapshot_newest_run": snap_newest,
+            "api_newest_run": api_newest,
+            "behind_seconds": behind,
+            "stale": bool(behind and behind > 0),
+        }
+    )
+
+
 @app.get("/api/commits")
 def api_commits(suite: str | None = None):
     """Current home-client build + per-commit aggregate throughput timeline."""
@@ -665,6 +842,20 @@ def agent_md(request: Request):
                 "",
             ]
 
+        hr = queries.headroom(conn, sh)
+        if hr and hr.get("gain_pct"):
+            L += [
+                f"**Headroom:** if {HOME} matched the fastest client on every test, aggregate "
+                f"would go {hr['current_mgas']:.0f} → {hr['potential_mgas']:.0f} Mgas/s "
+                f"(+{hr['gain_pct']:.0f}%, {hr['recoverable_s']:.1f}s recoverable).",
+                "",
+            ]
+        port = queries.bottleneck_portfolio(conn, sh)
+        if port.get("phase"):
+            phase_str = ", ".join(f"{k} {v}" for k, v in port["phase"].items())
+            res_str = ", ".join(f"{k} {v}" for k, v in port["resource"].items())
+            L += [f"Deficits by phase: {phase_str}. By resource: {res_str}.", ""]
+
         fkv = queries.fkv_summary(conn, sh)
         if fkv:
             if fkv["caught_up"]:
@@ -771,6 +962,39 @@ def agent_md(request: Request):
                         for r in top
                     ],
                 ),
+                "",
+            ]
+
+        mk = queries.merkle_opportunities(conn, sh, limit=10)
+        if not mk.empty:
+            L += [
+                "### Merkle parallelism opportunities (serial merkleization)",
+                "High merkle time with low exec/merkle overlap = merkle running serially. "
+                "`serial_merkle_ms` = merkle × (1 − overlap%).",
+                _md_table(
+                    ["op", "gas(M)", "merkle ms", "overlap %", "serial merkle ms"],
+                    [
+                        [
+                            r["op"] or "",
+                            r["benchmark_mgas"] or "",
+                            f"{r['merkle_ms']:.1f}",
+                            f"{r['merkle_overlap_pct']:.0f}"
+                            if r.get("merkle_overlap_pct")
+                            == r.get("merkle_overlap_pct")
+                            else "-",
+                            f"{r['serial_merkle_ms']:.1f}",
+                        ]
+                        for r in mk.to_dict("records")
+                    ],
+                ),
+                "",
+            ]
+
+        fails = queries.failures(conn, sh)
+        if fails:
+            L += [
+                "**Failing tests:** "
+                + ", ".join(f"{f['instance_id']} ({f['tests_failed']})" for f in fails),
                 "",
             ]
 

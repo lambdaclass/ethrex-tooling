@@ -17,13 +17,18 @@
   <div class="brand">benchmark<span>oor</span> · <em>{{ home }}</em></div>
   <nav>
     <a href="/">Overview</a>
-    <a href="/leaderboard?suite={{ suite_hash or '' }}">Leaderboard</a>
+    <a href="/leaderboard">Leaderboard</a>
     <a href="/coverage?suite={{ suite_hash or '' }}">Coverage</a>
     <a href="/compare?suite={{ suite_hash or '' }}">Compare</a>
-    <a href="/trends?suite={{ suite_hash or '' }}">Trends</a>
+    <a href="/merkle?suite={{ suite_hash or '' }}">Merkle</a>
+    <a href="/op?suite={{ suite_hash or '' }}">Scaling</a>
+    <a href="/trends">Trends</a>
   </nav>
   <div class="sync">
-    {% if last_sync %}synced {{ ((now - last_sync) // 60) }}m ago{% else %}<span class="warn">not synced — run sync</span>{% endif %}
+    {% if last_sync %}
+      {% set age_min = (now - last_sync) // 60 %}
+      <span class="{% if age_min >= 180 %}sync-stale{% elif age_min >= 60 %}sync-aging{% endif %}">synced {{ age_min }}m ago</span>
+    {% else %}<span class="warn">not synced — run sync</span>{% endif %}
   </div>
 </header>
 

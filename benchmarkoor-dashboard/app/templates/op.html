@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Gas scaling{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Gas scaling per operation</h1>{{ suite_picker("/op") }}</div>
+<form method="get" action="/op" class="filters">
+  <input type="hidden" name="suite" value="{{ suite_hash }}">
+  <label>Operation
+    <select name="op" onchange="this.form.submit()">
+      {% for o in ops %}<option value="{{ o }}" {% if o==op %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select>
+  </label>
+</form>
+<p class="muted">Mgas/s at each benchmark gas level for <code>{{ op }}</code>, {{ home }} vs the other clients.
+  A gap that widens with gas points to per-gas / algorithmic overhead; a flat gap is fixed cost.</p>
+{% if fig %}<div id="op-chart" class="chart"></div>{% else %}<p class="warn">No data for this operation.</p>{% endif %}
+{% endblock %}
+{% block scripts %}<script>drawPlot("op-chart", {{ fig|tojson if fig else 'null' }});</script>{% endblock %}

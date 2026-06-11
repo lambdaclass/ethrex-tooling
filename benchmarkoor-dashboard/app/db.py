@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS fkv_summary (
     finished   INTEGER
 );
 
+-- per-(commit, suite, op) phase aggregate, appended each sync so a per-commit
+-- regression history accumulates over time (one snapshot only holds one commit).
+CREATE TABLE IF NOT EXISTS phase_history (
+    commit_sha TEXT,
+    suite_hash TEXT,
+    op         TEXT,
+    exec_ms    REAL,
+    merkle_ms  REAL,
+    store_ms   REAL,
+    total_ms   REAL,
+    PRIMARY KEY (commit_sha, suite_hash, op)
+);
+
 CREATE TABLE IF NOT EXISTS sync_meta (
     key   TEXT PRIMARY KEY,
     value TEXT

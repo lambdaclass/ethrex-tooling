@@ -29,13 +29,19 @@ def _iso_to_unix(s: str) -> int:
     return calendar.timegm(time.strptime(s, "%Y-%m-%dT%H:%M:%SZ"))
 
 
-def fetch_commits(conn, verbose: bool = True) -> int:
-    """Pull the home-client branch's commit history via `gh` (sha + date + message).
+def _store_commit(
+    conn, sha: str, date_iso: str, msg: str, url: str, branch: str
+) -> None:
+    conn.execute(
+        "INSERT INTO commits(sha,committed_at,message,branch,url) VALUES(?,?,?,?,?) "
+        "ON CONFLICT(sha) DO UPDATE SET committed_at=excluded.committed_at, "
+        "message=excluded.message, branch=excluded.branch, url=excluded.url",
+        (sha, _iso_to_unix(date_iso), msg, branch, url),
+    )
 
-    Best-effort: if gh is missing/unauthenticated, commits stay empty and runs are
-    simply left without a commit association.
-    """
-    repo, branch = config.ETHREX_REPO, config.ETHREX_BRANCH
+
+def _commits_via_gh(conn, repo: str, branch: str, verbose: bool) -> int | None:
+    """Fetch via `gh` (authed, 5000/hr). Returns count, or None if gh unusable."""
     try:
         out = subprocess.run(
             [
@@ -51,29 +57,84 @@ def fetch_commits(conn, verbose: bool = True) -> int:
             text=True,
             timeout=60,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        if verbose:
-            print(f"  commits: skipped ({e})")
-        return 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
     if out.returncode != 0:
-        if verbose:
-            print(f"  commits: gh failed ({out.stderr.strip()[:120]})")
-        return 0
+        return None
     n = 0
     for line in out.stdout.splitlines():
-        if not line.strip():
-            continue
-        c = json.loads(line)
-        conn.execute(
-            "INSERT INTO commits(sha,committed_at,message,branch,url) VALUES(?,?,?,?,?) "
-            "ON CONFLICT(sha) DO UPDATE SET committed_at=excluded.committed_at, "
-            "message=excluded.message, branch=excluded.branch, url=excluded.url",
-            (c["sha"], _iso_to_unix(c["date"]), c["msg"], branch, c["url"]),
-        )
-        n += 1
+        if line.strip():
+            c = json.loads(line)
+            _store_commit(conn, c["sha"], c["date"], c["msg"], c["url"], branch)
+            n += 1
     conn.commit()
     if verbose:
-        print(f"  commits: {n} from {repo}@{branch}")
+        print(f"  commits: {n} via gh from {repo}@{branch}")
+    return n
+
+
+def _commits_via_http(conn, repo: str, branch: str, verbose: bool) -> int:
+    """Unauthenticated GitHub REST fallback. Heavily cached: stops at the first
+    commit already in the table (history is append-only), so steady state is one
+    request; only the initial empty-table sync pages further. Bounded + handles
+    the 60/hr rate limit gracefully."""
+    import httpx
+
+    known = {
+        r[0] for r in conn.execute("SELECT sha FROM commits WHERE branch=?", (branch,))
+    }
+    n, stop = 0, False
+    with httpx.Client(timeout=30.0) as c:
+        for page in range(1, 41):  # cap: ~4000 commits on a cold start
+            try:
+                resp = c.get(
+                    f"https://api.github.com/repos/{repo}/commits",
+                    params={"sha": branch, "per_page": 100, "page": page},
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+            except httpx.TransportError:
+                break
+            if resp.status_code == 403:  # rate limited
+                if verbose:
+                    print("  commits: github http rate-limited; using cached commits")
+                break
+            if resp.status_code != 200:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            for c_ in batch:
+                if c_["sha"] in known:  # reached cached history
+                    stop = True
+                    break
+                _store_commit(
+                    conn,
+                    c_["sha"],
+                    c_["commit"]["committer"]["date"],
+                    c_["commit"]["message"].split("\n")[0],
+                    c_["html_url"],
+                    branch,
+                )
+                n += 1
+            if stop or len(batch) < 100:
+                break
+    conn.commit()
+    if verbose:
+        print(f"  commits: {n} new via http (unauth) from {repo}@{branch}")
+    return n
+
+
+def fetch_commits(conn, verbose: bool = True) -> int:
+    """Pull the home-client branch's commit history (sha + date + message).
+
+    Prefers `gh` (authed); falls back to the unauthenticated GitHub REST API with
+    incremental caching when gh is missing/unauthenticated. Best-effort: on total
+    failure, commits stay as-is and runs are simply left without association.
+    """
+    repo, branch = config.ETHREX_REPO, config.ETHREX_BRANCH
+    n = _commits_via_gh(conn, repo, branch, verbose)
+    if n is None:
+        n = _commits_via_http(conn, repo, branch, verbose)
     return n
 
 
@@ -132,6 +193,38 @@ def ingest_phase_logs(conn, verbose: bool = True) -> dict[str, int]:
             )
     conn.commit()
     return counts
+
+
+def _append_phase_history(conn) -> None:
+    """Aggregate the current run's per-test phases into per-(commit, suite, op)
+    rows and upsert into phase_history, so regressions accrue across syncs."""
+    from collections import defaultdict
+
+    from .parse import extract_op
+
+    rows = conn.execute(
+        """SELECT r.ethrex_commit AS sha, p.suite_hash, p.test_name,
+                  p.exec_ms, p.merkle_ms, p.store_ms, p.total_ms
+           FROM test_phases p JOIN runs r ON r.run_id=p.run_id
+           WHERE r.ethrex_commit IS NOT NULL"""
+    ).fetchall()
+    agg: dict[tuple, list] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0, 0])
+    for r in rows:
+        op = extract_op(r["test_name"]) or r["test_name"]
+        a = agg[(r["sha"], r["suite_hash"], op)]
+        a[0] += r["exec_ms"] or 0
+        a[1] += r["merkle_ms"] or 0
+        a[2] += r["store_ms"] or 0
+        a[3] += r["total_ms"] or 0
+        a[4] += 1
+    for (sha, sh, op), (e, m, s, t, n) in agg.items():
+        conn.execute(
+            """INSERT OR REPLACE INTO phase_history
+               (commit_sha, suite_hash, op, exec_ms, merkle_ms, store_ms, total_ms)
+               VALUES(?,?,?,?,?,?,?)""",
+            (sha, sh, op, e / n, m / n, s / n, t / n),
+        )
+    conn.commit()
 
 
 def _mgas_s(gas_used: int, dur_ns: int) -> float | None:
@@ -359,6 +452,22 @@ def sync(verbose: bool = True) -> dict[str, int]:
 
         # 7. per-test phase timings + fkv summary from the run logs (home client)
         counts.update(ingest_phase_logs(conn, verbose))
+
+        # 8. append per-(commit, op) phase aggregates so a regression history builds
+        # up over time (each snapshot holds only the current commit's run).
+        _append_phase_history(conn)
+
+        # staleness: newest run timestamp across active suites (for age display)
+        newest = (
+            conn.execute(
+                "SELECT MAX(timestamp) FROM runs WHERE suite_hash IN (%s)"
+                % ",".join("?" * len(active)),
+                tuple(active),
+            ).fetchone()[0]
+            if active
+            else None
+        )
+        db.set_meta(conn, "newest_run_ts", str(newest or 0))
 
         db.set_meta(conn, "last_sync", str(int(time.time())))
         db.set_meta(conn, "counts", str(counts))

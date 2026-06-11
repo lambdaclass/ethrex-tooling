@@ -34,11 +34,27 @@
         <span class="big {% if c.below.below %}bad{% endif %}">{{ c.below.below }}</span>
         <span class="sub">{{ c.below.below_pct }}% of {{ c.below.total }} tests</span>
       </div>
+      {% if c.headroom and c.headroom.gain_pct %}
+      <div class="stat">
+        <span class="label">headroom</span>
+        <span class="big accent">+{{ "%.0f"|format(c.headroom.gain_pct) }}%</span>
+        <span class="sub">{{ "%.0f"|format(c.headroom.current_mgas) }} → {{ "%.0f"|format(c.headroom.potential_mgas) }} Mgas/s if best</span>
+      </div>
+      {% endif %}
     </div>
+    {% if c.portfolio and c.portfolio.phase %}
+    <div class="portfolio">deficits by phase:
+      {% for k, v in c.portfolio.phase.items() %}<span class="chip">{{ k }} {{ v }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% if c.failures %}
+    <div class="portfolio bad">failing: {% for f in c.failures %}{{ f.instance_id }} ({{ f.tests_failed }}){% if not loop.last %}, {% endif %}{% endfor %}</div>
+    {% endif %}
     <div class="card-links">
       <a href="/leaderboard">leaderboard</a>
-      <a href="/coverage?suite={{ c.suite_hash }}">coverage</a>
       <a href="/compare?suite={{ c.suite_hash }}&below=1">below others</a>
+      <a href="/merkle?suite={{ c.suite_hash }}">merkle</a>
+      <a href="/op?suite={{ c.suite_hash }}">scaling</a>
       <a href="/trends">trends</a>
     </div>
   </div>

@@ -327,7 +327,8 @@ def run_phases(conn: sqlite3.Connection, run_id: str) -> pd.DataFrame:
     df = pd.read_sql(
         "SELECT test_name, total_ms, exec_ms, merkle_ms, store_ms, "
         "merkle_overlap_pct, bottleneck FROM test_phases WHERE run_id=?",
-        conn, params=(run_id,),
+        conn,
+        params=(run_id,),
     )
     if not df.empty:
         df["op"] = df["test_name"].map(extract_op)
@@ -485,3 +486,123 @@ def deploy_markers(conn: sqlite3.Connection, suite_hash: str) -> list[dict]:
         (suite_hash, HOME),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---- headroom / portfolio / merkle / scaling / failures ----------------
+
+
+def headroom(conn: sqlite3.Connection, suite_hash: str) -> dict:
+    """Aggregate Mgas/s the home client would reach if it matched the fastest
+    client's time on every test (per-test min(home, best_other))."""
+    primary = primary_run_per_client(conn, suite_hash)
+    ts = _current_stats(conn, suite_hash)
+    if ts.empty:
+        return {}
+    ts = ts[ts["run_id"].isin(primary.values())]
+    tm = ts.pivot_table(index="test_name", columns="client", values="test_time_ns")
+    clients = [c for c in config.CLIENTS if c in tm.columns]
+    others = [c for c in clients if c != HOME]
+    if HOME not in tm.columns or not others:
+        return {}
+    gas = (
+        ts[ts["client"] == HOME]
+        .set_index("test_name")["test_gas_used"]
+        .reindex(tm.index)
+    )
+    et = tm[HOME]
+    best = pd.concat([et, tm[others].min(axis=1)], axis=1).min(
+        axis=1
+    )  # min(home, best other)
+    cur = gas.sum() * 1000.0 / et.sum()
+    pot = gas.sum() * 1000.0 / best.sum()
+    return {
+        "current_mgas": float(cur),
+        "potential_mgas": float(pot),
+        "gain_pct": float((pot / cur - 1) * 100) if cur else 0.0,
+        "recoverable_s": float((et.sum() - best.sum()) / 1e9),
+    }
+
+
+def bottleneck_portfolio(conn: sqlite3.Connection, suite_hash: str) -> dict:
+    """Distribution of the home client's deficits by pipeline phase and resource."""
+    df = opt_targets(conn, suite_hash)
+    if df.empty:
+        return {"below": 0, "phase": {}, "resource": {}}
+    below = df[df["ratio"] < 1.0]
+    phase = {}
+    if "phase_bottleneck" in below.columns:
+        phase = below["phase_bottleneck"].dropna().value_counts().to_dict()
+    resource = below["bottleneck"].value_counts().to_dict()
+    return {
+        "below": int(len(below)),
+        "phase": {k: int(v) for k, v in phase.items()},
+        "resource": {k: int(v) for k, v in resource.items()},
+    }
+
+
+def merkle_opportunities(
+    conn: sqlite3.Connection, suite_hash: str, limit: int = 40
+) -> pd.DataFrame:
+    """Tests where merkleization runs largely serial (high merkle_ms, low overlap).
+    serial_merkle_ms = merkle_ms * (1 - overlap%); the recoverable merkle time."""
+    df = opt_targets(conn, suite_hash)
+    if df.empty or "merkle_ms" not in df.columns:
+        return pd.DataFrame()
+    df = df.dropna(subset=["merkle_ms"])
+    df = df[df["merkle_ms"] > 0].copy()
+    if df.empty:
+        return df
+    df["serial_merkle_ms"] = df["merkle_ms"] * (
+        1 - df["merkle_overlap_pct"].fillna(0) / 100.0
+    )
+    return df.sort_values("serial_merkle_ms", ascending=False).head(limit)
+
+
+def op_scaling(conn: sqlite3.Connection, suite_hash: str, op: str) -> pd.DataFrame:
+    """For one operation, Mgas/s at each benchmark gas level, home vs best other."""
+    primary = primary_run_per_client(conn, suite_hash)
+    ts = _current_stats(conn, suite_hash)
+    if ts.empty:
+        return pd.DataFrame()
+    ts = ts[ts["run_id"].isin(primary.values())].copy()
+    ts["op"] = ts["test_name"].map(extract_op)
+    ts = ts[ts["op"] == op]
+    if ts.empty:
+        return pd.DataFrame()
+    mat = ts.pivot_table(index="benchmark_mgas", columns="client", values="test_mgas_s")
+    clients = [c for c in config.CLIENTS if c in mat.columns]
+    others = [c for c in clients if c != HOME]
+    out = mat.reset_index()
+    if HOME in mat.columns and others:
+        out["best_other"] = mat[others].max(axis=1).to_numpy()
+    return out.sort_values("benchmark_mgas")
+
+
+def list_ops(conn: sqlite3.Connection, suite_hash: str) -> list[str]:
+    ts = _current_stats(conn, suite_hash)
+    if ts.empty:
+        return []
+    return sorted({o for o in ts["test_name"].map(extract_op) if o})
+
+
+def failures(conn: sqlite3.Connection, suite_hash: str) -> list[dict]:
+    """Current-run instances with failing tests (from the run aggregate)."""
+    rows = conn.execute(
+        "SELECT instance_id, client, tests_failed, tests_total FROM runs "
+        "WHERE suite_hash=? AND is_current=1 AND tests_failed>0 ORDER BY tests_failed DESC",
+        (suite_hash,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def commit_op_regression(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
+    """Per-op phase timing across commits, from the accumulated phase_history.
+    Lets you see whether a commit moved a subsystem's exec/merkle/store time."""
+    return pd.read_sql(
+        """SELECT h.commit_sha, c.message, c.committed_at, h.op,
+                  h.exec_ms, h.merkle_ms, h.store_ms, h.total_ms
+           FROM phase_history h LEFT JOIN commits c ON c.sha=h.commit_sha
+           WHERE h.suite_hash=? ORDER BY h.op, c.committed_at""",
+        conn,
+        params=(suite_hash,),
+    )
