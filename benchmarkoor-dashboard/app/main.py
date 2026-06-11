@@ -423,7 +423,14 @@ def agent_md(request: Request):
         "It is how much wall-clock could be recovered. Targets are ranked by it (not by Mgas/s ratio, "
         "which over-weights tiny tests).",
         f"- **`rank`** = {HOME}'s position among clients on that test (1 = fastest).",
-        "- Optimize per **file/opcode** (the `by file` tables) — that's the actionable unit.",
+        "- **`op`** = the operation under test (opcode or scenario), parsed from the test name.",
+        f"- **`bottleneck`** = where {HOME} most exceeds the fastest competitor's resource use on a "
+        "slow test: `cpu` (compute-bound), `io` (disk-bound), `memory` (alloc-bound), or `even`. "
+        "A hint at *what kind* of fix, not a guarantee.",
+        "- **`scaling`** (per file) = does the gap grow with gas? `worse-at-high-gas` suggests "
+        "per-gas/algorithmic overhead; `flat` suggests fixed setup cost.",
+        "- In the by-file table, `time_lost` counts **only tests where "
+        f"{HOME} is behind** (ratio<1) — pure recoverable deficit. Optimize per **file/op**.",
         "",
         "Machine-readable equivalents: "
         f"`{base}/api/targets?suite=<hash>`, `{base}/api/targets/by_file?suite=<hash>`, "
@@ -479,13 +486,15 @@ def agent_md(request: Request):
         if not bf.empty:
             top = bf.head(15).to_dict("records")
             L += [
-                "### Top subsystems to optimize (by recoverable time)",
+                "### Top subsystems to optimize (recoverable time from deficits)",
                 _md_table(
                     [
                         "file",
                         "tests",
-                        f"{HOME} below others",
+                        f"{HOME} below",
                         "time_lost (ms)",
+                        "bottleneck",
+                        "scaling",
                         "median rank",
                         "median ratio",
                     ],
@@ -495,6 +504,8 @@ def agent_md(request: Request):
                             int(r["tests"]),
                             int(r["below"]),
                             f"{r['time_lost_ms']:.1f}",
+                            r["bottleneck"],
+                            r["scaling"],
                             f"{r['median_rank']:.0f}",
                             f"{r['median_ratio']:.2f}",
                         ]
@@ -511,7 +522,8 @@ def agent_md(request: Request):
                 "### Top individual test targets (by recoverable time)",
                 _md_table(
                     [
-                        "test",
+                        "op",
+                        "file",
                         "fork",
                         "gas(M)",
                         f"{HOME} Mgas/s",
@@ -519,11 +531,13 @@ def agent_md(request: Request):
                         "by",
                         "ratio",
                         "rank",
+                        "bottleneck",
                         "time_lost(ms)",
                     ],
                     [
                         [
-                            r["test_name"],
+                            r["op"] or "",
+                            r["file"],
                             r["fork"] or "",
                             r["benchmark_mgas"] or "",
                             f"{r['ethrex_mgas']:.0f}",
@@ -531,6 +545,7 @@ def agent_md(request: Request):
                             r["best_other_client"],
                             f"{r['ratio']:.2f}",
                             int(r["rank"]),
+                            r["bottleneck"],
                             f"{r['time_lost_ms']:.1f}",
                         ]
                         for r in top

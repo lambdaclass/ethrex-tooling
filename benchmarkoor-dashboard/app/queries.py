@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import sqlite3
 
+import numpy as np
 import pandas as pd
 
 from . import config
+from .parse import extract_op
 
 HOME = config.HOME_CLIENT
 
@@ -204,66 +206,148 @@ def coverage(conn: sqlite3.Connection, suite_hash: str) -> dict:
 # ---- optimization targets (agent-facing) -------------------------------
 
 
+def _row_by_client(
+    pivot: pd.DataFrame, clients: list[str], pick: np.ndarray
+) -> np.ndarray:
+    """For each row, the value of the column named in `pick` (best-other client)."""
+    vals = pivot.reindex(columns=clients).to_numpy(dtype=float)
+    idx = {c: i for i, c in enumerate(clients)}
+    out = np.full(len(pick), np.nan)
+    for i, c in enumerate(pick):
+        j = idx.get(c)
+        if j is not None:
+            out[i] = vals[i, j]
+    return out
+
+
 def opt_targets(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
     """Per-test view for picking optimization targets for the home client.
 
     Priority is `time_lost_ms` = home test time − fastest competitor's test time
     (how much wall-clock the home client could recover on that test), not the raw
-    Mgas/s ratio (which over-weights tiny tests).
+    Mgas/s ratio (which over-weights tiny tests). Also surfaces the operation under
+    test (`op`), resource use vs the best competitor, and a `bottleneck` guess
+    (cpu / io / memory) for tests where the home client is slower.
     """
     primary = primary_run_per_client(conn, suite_hash)
     ts = _current_stats(conn, suite_hash)
     if ts.empty:
         return ts
     ts = ts[ts["run_id"].isin(primary.values())]
-    mg = ts.pivot_table(
-        index=["test_name", "file", "fork", "benchmark_mgas"],
-        columns="client",
-        values="test_mgas_s",
-    )
-    tm = ts.pivot_table(
-        index=["test_name", "file", "fork", "benchmark_mgas"],
-        columns="client",
-        values="test_time_ns",
-    )
+    idx = ["test_name", "file", "fork", "benchmark_mgas"]
+
+    def piv(col: str) -> pd.DataFrame:
+        return ts.pivot_table(index=idx, columns="client", values=col)
+
+    mg, tm = piv("test_mgas_s"), piv("test_time_ns")
+    cpu, mem = piv("cpu_usec"), piv("memory_bytes")
+    dr, dw = piv("disk_read_bytes"), piv("disk_write_bytes")
     clients = [c for c in config.CLIENTS if c in mg.columns]
     others = [c for c in clients if c != HOME]
     if HOME not in mg.columns or not others:
         return pd.DataFrame()
+
     df = mg.index.to_frame(index=False)
+    df["op"] = df["test_name"].map(extract_op)
     df["ethrex_mgas"] = mg[HOME].to_numpy()
     df["median_other_mgas"] = mg[others].median(axis=1).to_numpy()
     df["best_other_mgas"] = mg[others].max(axis=1).to_numpy()
     df["ethrex_time_ns"] = tm[HOME].to_numpy()
+    boc = tm[others].idxmin(axis=1).to_numpy()  # fastest competitor by time
+    df["best_other_client"] = boc
     df["best_other_time_ns"] = tm[others].min(axis=1).to_numpy()
-    df["best_other_client"] = tm[others].idxmin(axis=1).to_numpy()
     df["ratio"] = df["ethrex_mgas"] / df["median_other_mgas"]
     df["time_lost_ms"] = (df["ethrex_time_ns"] - df["best_other_time_ns"]) / 1e6
     df["rank"] = (
         mg[clients].rank(axis=1, ascending=False, method="min")[HOME].to_numpy()
     )
     df["n_clients"] = mg[clients].notna().sum(axis=1).to_numpy()
+
+    # resources: home vs the fastest competitor on that test
+    e_cpu, o_cpu = cpu[HOME].to_numpy(dtype=float), _row_by_client(cpu, clients, boc)
+    e_mem, o_mem = mem[HOME].to_numpy(dtype=float), _row_by_client(mem, clients, boc)
+    e_io = np.nan_to_num(dr[HOME].to_numpy(dtype=float)) + np.nan_to_num(
+        dw[HOME].to_numpy(dtype=float)
+    )
+    o_io = np.nan_to_num(_row_by_client(dr, clients, boc)) + np.nan_to_num(
+        _row_by_client(dw, clients, boc)
+    )
+    df["ethrex_cpu_usec"], df["other_cpu_usec"] = e_cpu, o_cpu
+    df["ethrex_io_bytes"], df["other_io_bytes"] = e_io, o_io
+    df["ethrex_mem_bytes"], df["other_mem_bytes"] = e_mem, o_mem
+    with np.errstate(divide="ignore", invalid="ignore"):
+        df["cpu_ratio"] = e_cpu / o_cpu
+        df["io_ratio"] = np.where(o_io > 0, e_io / o_io, np.nan)
+        df["mem_ratio"] = e_mem / o_mem
+
+    def bottleneck(r) -> str:
+        if not r["time_lost_ms"] > 0:
+            return "even"  # home already at/ahead of best competitor
+        cands = {"cpu": r["cpu_ratio"], "io": r["io_ratio"], "memory": r["mem_ratio"]}
+        cands = {k: v for k, v in cands.items() if pd.notna(v) and v > 0}
+        if not cands:
+            return "unknown"
+        k = max(cands, key=cands.get)
+        return k if cands[k] > 1.15 else "even"
+
+    df["bottleneck"] = df.apply(bottleneck, axis=1)
     return df.sort_values("time_lost_ms", ascending=False).reset_index(drop=True)
 
 
+def _scaling(sub: pd.DataFrame) -> str:
+    """Does the home client's gap widen with gas? corr(gas, ratio) over the file's
+    tests. ratio<1 = behind; negative corr => relatively worse at high gas."""
+    s = sub.dropna(subset=["benchmark_mgas", "ratio"])
+    if len(s) < 4 or s["benchmark_mgas"].nunique() < 3:
+        return "n/a"
+    c = s["benchmark_mgas"].corr(s["ratio"])
+    if pd.isna(c):
+        return "n/a"
+    if c <= -0.3:
+        return "worse-at-high-gas"
+    if c >= 0.3:
+        return "better-at-high-gas"
+    return "flat"
+
+
 def targets_by_file(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
-    """Aggregate targets per file/opcode — the 'which subsystem to attack' view."""
+    """Aggregate targets per file/opcode — the 'which subsystem to attack' view.
+
+    `time_lost_ms` counts only tests where the home client is behind (ratio < 1),
+    so it's purely recoverable deficit. Adds the dominant `bottleneck` among those
+    deficits and a `scaling` hint (does the gap grow with gas?).
+    """
     df = opt_targets(conn, suite_hash)
     if df.empty:
         return df
+    below = df[df["ratio"] < 1.0]
     g = (
         df.groupby("file")
         .agg(
             tests=("test_name", "count"),
             below=("ratio", lambda s: int((s < 1.0).sum())),
-            time_lost_ms=("time_lost_ms", "sum"),
             median_rank=("rank", "median"),
             median_ratio=("ratio", "median"),
         )
         .reset_index()
-        .sort_values("time_lost_ms", ascending=False)
     )
-    return g
+    rec = below.groupby("file")["time_lost_ms"].sum().rename("time_lost_ms")
+    g = g.merge(rec, on="file", how="left")
+    g["time_lost_ms"] = g["time_lost_ms"].fillna(0.0)
+    bn = (
+        below.groupby("file")["bottleneck"]
+        .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else "even")
+        .rename("bottleneck")
+    )
+    g = g.merge(bn, on="file", how="left")
+    g["bottleneck"] = g["bottleneck"].fillna("even")
+    sc = (
+        df.groupby("file")[["benchmark_mgas", "ratio"]]
+        .apply(_scaling)
+        .rename("scaling")
+    )
+    g = g.merge(sc, on="file", how="left")
+    return g.sort_values("time_lost_ms", ascending=False)
 
 
 # ---- trends -------------------------------------------------------------
