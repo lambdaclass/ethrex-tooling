@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Coverage{% endblock %}
+{% block body %}
+<div class="page-head"><h1>{{ home }} coverage gaps</h1>{{ suite_picker("/coverage") }}</div>
+{% if not cov %}<p class="warn">No data.</p>{% else %}
+<div class="stat-row">
+  <div class="stat"><span class="label">coverage</span><span class="big {% if cov.coverage_pct < 100 %}bad{% else %}good{% endif %}">{{ cov.coverage_pct }}%</span><span class="sub">{{ cov.home }}/{{ cov.union }} tests</span></div>
+  <div class="stat"><span class="label">missing tests</span><span class="big {% if cov.missing_count %}bad{% endif %}">{{ cov.missing_count }}</span><span class="sub">run by others, not by {{ home }}</span></div>
+</div>
+
+{% if cov.by_file %}
+<h2>Missing by file</h2>
+<table class="grid">
+  <thead><tr><th>file</th><th class="num">missing tests</th></tr></thead>
+  <tbody>{% for f in cov.by_file %}<tr><td>{{ f.file }}</td><td class="num">{{ f.n }}</td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+
+{% if cov.missing %}
+<h2>Missing tests {% if cov.missing_count > cov.missing|length %}(first {{ cov.missing|length }}){% endif %}</h2>
+<ul class="testlist">
+  {% for t in cov.missing %}<li><a href="/test?suite={{ suite_hash }}&name={{ t|urlencode }}">{{ t }}</a></li>{% endfor %}
+</ul>
+{% else %}
+<p class="good">✓ {{ home }} runs every test in this suite.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

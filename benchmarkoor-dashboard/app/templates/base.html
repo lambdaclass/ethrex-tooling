@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Benchmarkoor{% endblock %} · ethrex dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+</head>
+<body>
+<header>
+  <div class="brand">benchmark<span>oor</span> · <em>{{ home }}</em></div>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/leaderboard?suite={{ suite_hash or '' }}">Leaderboard</a>
+    <a href="/coverage?suite={{ suite_hash or '' }}">Coverage</a>
+    <a href="/compare?suite={{ suite_hash or '' }}">Compare</a>
+    <a href="/trends?suite={{ suite_hash or '' }}">Trends</a>
+  </nav>
+  <div class="sync">
+    {% if last_sync %}synced {{ ((now - last_sync) // 60) }}m ago{% else %}<span class="warn">not synced — run sync</span>{% endif %}
+  </div>
+</header>
+
+{% macro suite_picker(path) %}
+<form method="get" action="{{ path }}" class="suite-picker">
+  <label>Suite</label>
+  <select name="suite" onchange="this.form.submit()">
+    <optgroup label="Latest suites">
+    {% for s in suites if s.age == 'new' %}
+    <option value="{{ s.suite_hash }}" {% if s.suite_hash == suite_hash %}selected{% endif %}>
+      {{ s.name }} ({{ s.tests_total }} tests)
+    </option>
+    {% endfor %}
+    </optgroup>
+    <optgroup label="Previous (regenerated)">
+    {% for s in suites if s.age == 'old' %}
+    <option value="{{ s.suite_hash }}" {% if s.suite_hash == suite_hash %}selected{% endif %}>
+      {{ s.name }} ({{ s.tests_total }} tests)
+    </option>
+    {% endfor %}
+    </optgroup>
+  </select>
+</form>
+{% endmacro %}
+
+<main>
+  {% block body %}{% endblock %}
+</main>
+
+<script>
+  function drawPlot(id, payload) {
+    if (!payload) return;
+    const fig = JSON.parse(payload);
+    Plotly.newPlot(id, fig.data, fig.layout, {responsive: true, displayModeBar: false});
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

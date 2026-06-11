@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard{% endblock %}
+{% block body %}
+<h1>Leaderboard</h1>
+<p class="muted">Ranked by gas-weighted aggregate Mgas/s (real throughput). {{ home }} highlighted.</p>
+{% if not sections %}<p class="warn">No data. Run <code>uv run python -m app.sync</code>.</p>{% endif %}
+
+{% set groups = [('new', 'Latest suites'), ('old', 'Previous (regenerated)')] %}
+{% for age, heading in groups %}
+{% set group = sections | selectattr('suite.age', 'equalto', age) | list %}
+{% if group %}
+<h2 class="group-head">{{ heading }}{% if age == 'old' %} <span class="muted">— historical, not forward-looking</span>{% endif %}</h2>
+{% for sec in group %}
+{% set s = sec.suite %}
+<section class="lb-suite {% if age == 'old' %}dim{% endif %}">
+  <div class="lb-head">
+    <h2>{{ s.name }}</h2>
+    <span class="muted">{{ s.variant }} · {{ s.tests_total }} tests · {{ s.runs_total }} runs ({{ s.runs_completed }} completed) · created {{ s.indexed_at }}</span>
+  </div>
+  <div class="lb-grid">
+    {% if sec.fig %}<div id="lb-{{ s.suite_hash }}" class="chart"></div>{% endif %}
+    <table class="grid">
+      <thead><tr>
+        <th>#</th><th>instance</th><th>client</th>
+        <th class="num">Mgas/s (agg)</th><th class="num">median</th><th class="num">mean</th>
+        <th class="num">wins</th><th class="num">gas-won %</th><th class="num">total time (s)</th><th class="num">tests</th>
+      </tr></thead>
+      <tbody>
+      {% for r in sec.rows %}
+      <tr class="{% if r.is_home %}home{% endif %}">
+        <td>{{ r.rank }}</td>
+        <td>{{ r.instance_id }}</td>
+        <td>{{ r.client }}</td>
+        <td class="num"><strong>{{ "%.0f"|format(r.agg_mgas) }}</strong></td>
+        <td class="num">{{ "%.0f"|format(r.median_mgas) }}</td>
+        <td class="num">{{ "%.0f"|format(r.mean_mgas) }}</td>
+        <td class="num">{{ r.wins }}</td>
+        <td class="num">{{ "%.1f"|format(r.gas_won_pct) }}</td>
+        <td class="num">{{ "%.1f"|format(r.total_time_s) }}</td>
+        <td class="num">{{ r.tests }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+  {% for sec in sections %}{% if sec.fig %}drawPlot("lb-{{ sec.suite.suite_hash }}", {{ sec.fig|tojson }});{% endif %}
+  {% endfor %}
+</script>
+{% endblock %}

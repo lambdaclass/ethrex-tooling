@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block body %}
+<h1>Active suites</h1>
+{% if not cards %}
+  <p class="warn">No data yet. Run <code>uv run python -m app.sync</code> to populate the snapshot.</p>
+{% endif %}
+
+{% set groups = [('new', 'Latest suites'), ('old', 'Previous (regenerated)')] %}
+{% for age, heading in groups %}
+{% set group_cards = cards | selectattr('age', 'equalto', age) | list %}
+{% if group_cards %}
+<h2 class="group-head">{{ heading }}{% if age == 'old' %} <span class="muted">— historical, not forward-looking</span>{% endif %}</h2>
+<div class="cards {% if age == 'old' %}dim{% endif %}">
+  {% for c in group_cards %}
+  <div class="card">
+    <div class="card-head">
+      <strong>{{ c.name }}</strong>
+    </div>
+    <div class="muted">{{ c.variant }} · {{ c.tests_total }} tests · {{ c.n_instances }} instances</div>
+    <div class="stat-row">
+      <div class="stat">
+        <span class="label">{{ home }} coverage</span>
+        <span class="big {% if c.coverage.coverage_pct < 100 %}bad{% else %}good{% endif %}">{{ c.coverage.coverage_pct }}%</span>
+        <span class="sub">{{ c.coverage.home }}/{{ c.coverage.union }} ({{ c.coverage.missing_count }} missing)</span>
+      </div>
+      <div class="stat">
+        <span class="label">leaderboard rank</span>
+        <span class="big">{% if c.home_rank %}#{{ c.home_rank }}{% else %}—{% endif %}</span>
+        <span class="sub">of {{ c.n_instances }} instances</span>
+      </div>
+      <div class="stat">
+        <span class="label">below median</span>
+        <span class="big {% if c.below.below %}bad{% endif %}">{{ c.below.below }}</span>
+        <span class="sub">{{ c.below.below_pct }}% of {{ c.below.total }} tests</span>
+      </div>
+    </div>
+    <div class="card-links">
+      <a href="/leaderboard">leaderboard</a>
+      <a href="/coverage?suite={{ c.suite_hash }}">coverage</a>
+      <a href="/compare?suite={{ c.suite_hash }}&below=1">below others</a>
+      <a href="/trends">trends</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}
