@@ -393,7 +393,7 @@ def run_logs(request: Request, run_id: str):
                 )
             )
         fig.update_layout(
-            barmode="stack", bargap=0.35, height=26 * len(top) + 120,
+            barmode="stack", bargap=0.55, height=20 * len(top) + 110,
             hovermode="y unified", margin=dict(l=10, r=10, t=10, b=40),
             xaxis_title="ms (per test block)",
             legend=dict(orientation="h", y=-0.12, font=dict(size=12)),

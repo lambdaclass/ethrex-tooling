@@ -1,6 +1,6 @@
 :root {
   --bg: #0f1117; --panel: #181b24; --line: #262a36; --txt: #e6e8ee;
-  --muted: #8b90a0; --home: #e6007a; --good: #2ecc71; --bad: #ff5470; --accent: #4aa3ff;
+  --muted: #9aa3b5; --home: #e6007a; --good: #2ecc71; --bad: #ff5470; --accent: #4aa3ff;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--txt);
@@ -21,6 +21,7 @@ nav a:hover { opacity: 1; }
 .warn { color: var(--bad); }
 
 main { padding: 32px 40px; max-width: 1860px; margin: 0 auto; }
+main > p { max-width: 96ch; }
 h1 { font-size: 26px; margin: 0 0 20px; }
 h2 { font-size: 20px; margin: 32px 0 14px; }
 .muted, .sub { color: var(--muted); }
@@ -34,9 +35,6 @@ h2 { font-size: 20px; margin: 32px 0 14px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 22px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
 .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 17px; }
-.badge { font-size: 12px; padding: 2px 9px; border-radius: 20px; text-transform: uppercase; }
-.badge.new { background: #143; color: var(--good); }
-.badge.old { background: #322; color: var(--muted); }
 .card-links { display: flex; gap: 16px; margin-top: 16px; font-size: 15px; }
 
 .stat-row { display: flex; gap: 26px; margin: 18px 0 6px; }
@@ -49,10 +47,10 @@ h2 { font-size: 20px; margin: 32px 0 14px; }
 
 .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 20px; }
 
-.group-head { font-size: 15px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent);
-  border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 40px 0 20px; }
+.group-head { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+  font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 40px 0 20px; }
 .group-head:first-of-type { margin-top: 10px; }
-.group-head .muted { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.group-head .muted { text-transform: none; letter-spacing: 0; font-size: 13px; opacity: .8; }
 .cards.dim, .lb-suite.dim { opacity: .62; }
 .lb-suite.dim:hover, .cards.dim:hover { opacity: 1; transition: opacity .2s; }
 
@@ -71,7 +69,11 @@ table.grid { width: 100%; border-collapse: collapse; background: var(--panel);
 .grid thead th { background: #1d212c; color: var(--muted); font-weight: 600; font-size: 13px;
   position: sticky; top: 64px; }
 .grid .num { text-align: right; font-variant-numeric: tabular-nums; }
-.grid tr.home { background: rgba(230,0,122,.10); }
+.grid tbody tr:nth-child(even) { background: rgba(255,255,255,.018); }
+.grid tbody tr:hover { background: rgba(74,163,255,.07); }
+.grid tr.home, .grid tbody tr.home:nth-child(even) { background: rgba(230,0,122,.10); }
+.grid tr.home:hover { background: rgba(230,0,122,.16); }
+.grid tr.home td:first-child { box-shadow: inset 3px 0 0 var(--home); }
 .grid th.home, .grid td.home { color: var(--home); font-weight: 600; }
 .grid.compact th, .grid.compact td { padding: 6px 12px; font-size: 14px; }
 .tname { max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
