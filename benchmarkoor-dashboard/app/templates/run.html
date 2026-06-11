@@ -4,8 +4,9 @@
 <div class="page-head"><h1>Run phase breakdown</h1></div>
 <p class="tname-full">{{ run_id }}</p>
 {% if source == "parsed phase log" %}
-<p class="muted">{{ n_blocks }} tests · parsed from the run log. Per-test block time split into
-  <code>exec</code> / <code>merkle</code> / <code>store</code> (top 40 by total). Stacked bars.</p>
+<p class="muted">{{ n_blocks }} tests · parsed from the run log. Block time split into
+  <code>exec</code> / <code>merkle</code> / <code>store</code>, one bar per operation (its slowest block),
+  top 30 by total. Stacked bars.</p>
 {% else %}
 <p class="muted">{{ n_blocks }} blocks · live from the benchmarkoor block-logs API. Populated metrics:
   {% if populated %}{{ populated|join(", ") }}{% else %}<span class="warn">none</span>{% endif %}.

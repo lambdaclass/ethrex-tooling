@@ -44,21 +44,24 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT / "templates")
 HOME = config.HOME_CLIENT
 
-# client -> color (ethrex highlighted)
+# client -> color. ethrex (home) stays vivid; others are desaturated so they
+# read as a calm comparison set against the dark panel.
 COLORS = {
     "ethrex": "#e6007a",
-    "geth": "#4aa3ff",
-    "besu": "#ff9f43",
-    "nethermind": "#2ecc71",
-    "erigon": "#b07cff",
-    "reth": "#ff6b9d",
+    "geth": "#6e8fd6",
+    "besu": "#d6a35c",
+    "nethermind": "#4fb0a3",
+    "erigon": "#9b86d3",
+    "reth": "#cf8099",
 }
+MUTED_BAR = "#5f6b85"  # non-home bars on the leaderboard (ethrex is the only highlight)
 
 # Dark theme matching the dashboard chrome (var(--panel)/(--txt)/(--line)).
 DARK_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#e6e8ee", size=14),
+    font=dict(color="#e6e8ee", size=14,
+              family='Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif'),
     title_font=dict(color="#e6e8ee", size=16),
     xaxis=dict(gridcolor="#262a36", zerolinecolor="#262a36", linecolor="#262a36"),
     yaxis=dict(gridcolor="#262a36", zerolinecolor="#262a36", linecolor="#262a36"),
@@ -146,7 +149,10 @@ def leaderboard(request: Request):
                     x=lb["agg_mgas"],
                     y=lb["instance_id"],
                     orientation="h",
-                    marker_color=[COLORS.get(c, "#999") for c in lb["client"]],
+                    marker_color=[
+                        COLORS["ethrex"] if c == HOME else MUTED_BAR
+                        for c in lb["client"]
+                    ],
                     text=[f"{v:,.0f}" for v in lb["agg_mgas"]],
                     textposition="auto",
                 )
@@ -375,10 +381,13 @@ def run_logs(request: Request, run_id: str):
     if not ph.empty:
         source = "parsed phase log"
         n = len(ph)
-        top = ph.sort_values("total_ms", ascending=False).head(40).iloc[::-1]
-        labels = [
-            f"{(r['op'] or r['test_name'])[:34]}" for _, r in top.iterrows()
-        ]
+        # one bar per operation = its worst (max total_ms) block, so y-labels are
+        # unique (many tests share an op at different gas) and each bar is a clean
+        # exec/merkle/store split.
+        ph["op"] = ph["op"].fillna(ph["test_name"])
+        worst = ph.loc[ph.groupby("op")["total_ms"].idxmax()]
+        top = worst.sort_values("total_ms", ascending=False).head(30).iloc[::-1]
+        labels = [f"{r['op'][:36]}" for _, r in top.iterrows()]
         populated = ["exec_ms", "merkle_ms", "store_ms"]
         fig = go.Figure()
         for m in populated:
