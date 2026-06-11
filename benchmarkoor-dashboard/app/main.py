@@ -355,61 +355,74 @@ def test_detail(request: Request, suite: str, name: str):
     )
 
 
+_PHASE_COLORS = {"exec_ms": "#e6007a", "merkle_ms": "#4aa3ff", "store_ms": "#2ecc71"}
+
+
 @app.get("/run/{run_id}", response_class=HTMLResponse)
 def run_logs(request: Request, run_id: str):
-    """Lazy per-run block-logs view: per-block telemetry fetched live (not stored).
+    """Per-run phase view.
 
-    For ethrex only `timing_total_ms` is populated today; a flat-KV (fkv) catch-up
-    shows as an inflection in that curve (early tests slow until generation finishes,
-    then faster) — or a repeating per-test setup cost if it regenerates each test.
+    If we ingested the run log (home client), show the per-test exec/merkle/store
+    split (stacked, top tests by total). Otherwise fall back to the benchmarkoor
+    block-logs API, which for ethrex only carries `timing_total_ms` (one line).
     """
-    import pandas as pd
+    conn = db.connect()
+    db.init(conn)
+    ph = queries.run_phases(conn, run_id)
+    fig, populated, n, source = None, [], 0, ""
 
-    rows = _fetch_block_logs(run_id)
-    fig, populated, n = None, [], len(rows)
-    if rows:
-        df = (
-            pd.DataFrame(rows)
-            .sort_values(["block_number", "id"])
-            .reset_index(drop=True)
-        )
-        df["seq"] = range(1, len(df) + 1)
-        populated = [
-            m
-            for m in _BLOCKLOG_METRICS
-            if df.get(m) is not None and df[m].abs().sum() > 0
+    if not ph.empty:
+        source = "parsed phase log"
+        n = len(ph)
+        top = ph.sort_values("total_ms", ascending=False).head(40).iloc[::-1]
+        labels = [
+            f"{(r['op'] or r['test_name'])[:34]}" for _, r in top.iterrows()
         ]
+        populated = ["exec_ms", "merkle_ms", "store_ms"]
         fig = go.Figure()
         for m in populated:
             fig.add_trace(
-                go.Scatter(
-                    x=df["seq"],
-                    y=df[m],
-                    name=m,
-                    mode="lines",
-                    yaxis="y2" if "rate" in m or "throughput" in m else "y",
-                    line=dict(width=2 if m == "timing_total_ms" else 1.3),
+                go.Bar(
+                    y=labels, x=top[m], name=m.removesuffix("_ms"),
+                    orientation="h", marker_color=_PHASE_COLORS[m],
                 )
             )
         fig.update_layout(
-            height=480,
-            hovermode="x unified",
-            margin=dict(l=10, r=10, t=10, b=40),
-            xaxis_title="block / test sequence",
-            yaxis_title="ms",
-            yaxis2=dict(title="rate", overlaying="y", side="right", showgrid=False),
-            legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+            barmode="stack", height=28 * len(top) + 120, hovermode="y unified",
+            margin=dict(l=10, r=10, t=10, b=40), xaxis_title="ms (per test block)",
+            legend=dict(orientation="h", y=-0.12, font=dict(size=12)),
         )
+    else:
+        # fallback: live block-logs from the API (no phase split for ethrex)
+        import pandas as pd
+
+        rows = _fetch_block_logs(run_id)
+        n = len(rows)
+        if rows:
+            df = pd.DataFrame(rows).sort_values(["block_number", "id"]).reset_index(drop=True)
+            df["seq"] = range(1, len(df) + 1)
+            populated = [
+                m for m in _BLOCKLOG_METRICS if df.get(m) is not None and df[m].abs().sum() > 0
+            ]
+            fig = go.Figure()
+            for m in populated:
+                fig.add_trace(go.Scatter(x=df["seq"], y=df[m], name=m, mode="lines"))
+            fig.update_layout(
+                height=480, hovermode="x unified", margin=dict(l=10, r=10, t=10, b=40),
+                xaxis_title="block / test sequence", yaxis_title="ms",
+                legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+            )
     return render(
         request,
         "run.html",
         _ctx(
             request,
-            conn=db.connect(),
+            conn,
             suite_hash=None,
             run_id=run_id,
             n_blocks=n,
             populated=populated,
+            source=source,
             fig=fig_json(fig) if fig is not None else None,
         ),
     )

@@ -1,21 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Run logs{% endblock %}
+{% block title %}Run phases{% endblock %}
 {% block body %}
-<div class="page-head"><h1>Run block-logs</h1></div>
+<div class="page-head"><h1>Run phase breakdown</h1></div>
 <p class="tname-full">{{ run_id }}</p>
-<p class="muted">{{ n_blocks }} blocks · fetched live (not stored). Populated metrics:
-  {% if populated %}{{ populated|join(", ") }}{% else %}<span class="warn">none</span>{% endif %}.</p>
+{% if source == "parsed phase log" %}
+<p class="muted">{{ n_blocks }} tests · parsed from the run log. Per-test block time split into
+  <code>exec</code> / <code>merkle</code> / <code>store</code> (top 40 by total). Stacked bars.</p>
+{% else %}
+<p class="muted">{{ n_blocks }} blocks · live from the benchmarkoor block-logs API. Populated metrics:
+  {% if populated %}{{ populated|join(", ") }}{% else %}<span class="warn">none</span>{% endif %}.
+  For ethrex the API only carries <code>timing_total_ms</code>, so only one line moves — the
+  <code>exec/merkle/store</code> split comes from the parsed run log (ingested for the home client).</p>
+{% endif %}
 
 {% if fig %}<div id="bl-chart" class="chart"></div>{% else %}
-<p class="warn">No block-logs for this run.</p>{% endif %}
-
-<p class="muted">
-  fkv (FlatKeyValue) catch-up is logged to ethrex <em>stdout</em>
-  (<code>Generation of FlatKeyValue started/finished</code>), which benchmarkoor does not store —
-  it keeps only parsed per-block telemetry, so for ethrex usually just <code>timing_total_ms</code>.
-  A catch-up shows here as an inflection in that curve (early tests slow until generation finishes,
-  then faster), or a repeating per-test cost if it regenerates each test.
-  JSON: <code>/api/runs/{{ run_id }}/block_logs</code>.
-</p>
+<p class="warn">No data for this run.</p>{% endif %}
 {% endblock %}
 {% block scripts %}<script>drawPlot("bl-chart", {{ fig|tojson if fig else 'null' }});</script>{% endblock %}

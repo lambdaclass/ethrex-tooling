@@ -322,6 +322,18 @@ def opt_targets(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
     return df.sort_values("time_lost_ms", ascending=False).reset_index(drop=True)
 
 
+def run_phases(conn: sqlite3.Connection, run_id: str) -> pd.DataFrame:
+    """Parsed per-test phase split (exec/merkle/store) for a run, if ingested."""
+    df = pd.read_sql(
+        "SELECT test_name, total_ms, exec_ms, merkle_ms, store_ms, "
+        "merkle_overlap_pct, bottleneck FROM test_phases WHERE run_id=?",
+        conn, params=(run_id,),
+    )
+    if not df.empty:
+        df["op"] = df["test_name"].map(extract_op)
+    return df
+
+
 def fkv_summary(conn: sqlite3.Connection, suite_hash: str) -> dict | None:
     """fkv catch-up summary for the home client's current run on a suite.
 
