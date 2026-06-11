@@ -74,6 +74,29 @@ CREATE TABLE IF NOT EXISTS test_stats (
 CREATE INDEX IF NOT EXISTS idx_ts_suite ON test_stats(suite_hash);
 CREATE INDEX IF NOT EXISTS idx_ts_client ON test_stats(client);
 
+CREATE TABLE IF NOT EXISTS test_phases (
+    run_id        TEXT,
+    suite_hash    TEXT,
+    test_name     TEXT,
+    total_ms      REAL,
+    exec_ms       REAL,
+    merkle_ms     REAL,
+    store_ms      REAL,
+    merkle_drain_ms     REAL,
+    merkle_overlap_pct  REAL,
+    bottleneck    TEXT,
+    PRIMARY KEY (run_id, test_name)
+);
+CREATE INDEX IF NOT EXISTS idx_phases_suite ON test_phases(suite_hash);
+
+CREATE TABLE IF NOT EXISTS fkv_summary (
+    run_id     TEXT PRIMARY KEY,
+    suite_hash TEXT,
+    started    INTEGER,
+    skipping   INTEGER,
+    finished   INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS sync_meta (
     key   TEXT PRIMARY KEY,
     value TEXT

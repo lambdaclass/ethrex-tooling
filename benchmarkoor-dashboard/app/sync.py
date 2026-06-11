@@ -77,6 +77,63 @@ def fetch_commits(conn, verbose: bool = True) -> int:
     return n
 
 
+def ingest_phase_logs(conn, verbose: bool = True) -> dict[str, int]:
+    """Stream each current home-client run's benchmarkoor.log, parse per-test
+    phase timings (exec/merkle/store) + fkv catch-up summary, store the derived
+    rows. The raw log is never written to disk."""
+    from .logparse import parse, stream_run_log
+
+    counts = {"phase_runs": 0, "phase_rows": 0}
+    rows = conn.execute(
+        "SELECT run_id, suite_hash FROM runs WHERE is_current=1 AND client=?",
+        (config.HOME_CLIENT,),
+    ).fetchall()
+    conn.execute("DELETE FROM test_phases")
+    conn.execute("DELETE FROM fkv_summary")
+    for r in rows:
+        rid, sh = r["run_id"], r["suite_hash"]
+        try:
+            res = parse(stream_run_log(rid))
+        except Exception as e:  # network/parse hiccup: skip this run, keep going
+            if verbose:
+                print(f"  phases: {rid} skipped ({type(e).__name__}: {e})")
+            continue
+        for tp in res.tests.values():
+            conn.execute(
+                """INSERT OR REPLACE INTO test_phases
+                   (run_id,suite_hash,test_name,total_ms,exec_ms,merkle_ms,store_ms,
+                    merkle_drain_ms,merkle_overlap_pct,bottleneck)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    rid,
+                    sh,
+                    tp.test_name,
+                    tp.total_ms,
+                    tp.exec_ms,
+                    tp.merkle_ms,
+                    tp.store_ms,
+                    tp.merkle_drain_ms,
+                    tp.merkle_overlap_pct,
+                    tp.bottleneck,
+                ),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO fkv_summary(run_id,suite_hash,started,skipping,finished) "
+            "VALUES(?,?,?,?,?)",
+            (rid, sh, res.fkv_started, res.fkv_skipping, res.fkv_finished),
+        )
+        counts["phase_runs"] += 1
+        counts["phase_rows"] += len(res.tests)
+        if verbose:
+            print(
+                f"  phases: {rid} -> {len(res.tests)} tests "
+                f"(fkv started={res.fkv_started} skipping={res.fkv_skipping} "
+                f"finished={res.fkv_finished})"
+            )
+    conn.commit()
+    return counts
+
+
 def _mgas_s(gas_used: int, dur_ns: int) -> float | None:
     if not gas_used or not dur_ns:
         return None
@@ -299,6 +356,9 @@ def sync(verbose: bool = True) -> dict[str, int]:
         ).fetchone()[0]
         counts["runs_with_commit"] = mapped
         conn.commit()
+
+        # 7. per-test phase timings + fkv summary from the run logs (home client)
+        counts.update(ingest_phase_logs(conn, verbose))
 
         db.set_meta(conn, "last_sync", str(int(time.time())))
         db.set_meta(conn, "counts", str(counts))

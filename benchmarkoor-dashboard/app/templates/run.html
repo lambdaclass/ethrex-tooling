@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Run logs{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Run block-logs</h1></div>
+<p class="tname-full">{{ run_id }}</p>
+<p class="muted">{{ n_blocks }} blocks · fetched live (not stored). Populated metrics:
+  {% if populated %}{{ populated|join(", ") }}{% else %}<span class="warn">none</span>{% endif %}.</p>
+
+{% if fig %}<div id="bl-chart" class="chart"></div>{% else %}
+<p class="warn">No block-logs for this run.</p>{% endif %}
+
+<p class="muted">
+  fkv (FlatKeyValue) catch-up is logged to ethrex <em>stdout</em>
+  (<code>Generation of FlatKeyValue started/finished</code>), which benchmarkoor does not store —
+  it keeps only parsed per-block telemetry, so for ethrex usually just <code>timing_total_ms</code>.
+  A catch-up shows here as an inflection in that curve (early tests slow until generation finishes,
+  then faster), or a repeating per-test cost if it regenerates each test.
+  JSON: <code>/api/runs/{{ run_id }}/block_logs</code>.
+</p>
+{% endblock %}
+{% block scripts %}<script>drawPlot("bl-chart", {{ fig|tojson if fig else 'null' }});</script>{% endblock %}

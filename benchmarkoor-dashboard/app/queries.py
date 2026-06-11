@@ -93,6 +93,7 @@ def leaderboard(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
     agg = (
         ts.groupby(["instance_id", "client"])
         .agg(
+            run_id=("run_id", "first"),
             median_mgas=("test_mgas_s", "median"),
             mean_mgas=("test_mgas_s", "mean"),
             total_gas=("test_gas_used", "sum"),
@@ -291,7 +292,54 @@ def opt_targets(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
         return k if cands[k] > 1.15 else "even"
 
     df["bottleneck"] = df.apply(bottleneck, axis=1)
+
+    # fold in per-test phase timings (exec/merkle/store) parsed from the home
+    # client's run log, if ingested. `phase_bottleneck` is the pipeline stage
+    # (exec/merkle/store); the resource `bottleneck` (cpu/io/memory) is kept too.
+    home_run = primary.get(HOME)
+    ph = (
+        pd.read_sql(
+            "SELECT test_name, exec_ms, merkle_ms, store_ms, merkle_overlap_pct, "
+            "bottleneck AS phase_bottleneck FROM test_phases WHERE run_id=?",
+            conn,
+            params=(home_run,),
+        )
+        if home_run
+        else pd.DataFrame()
+    )
+    if not ph.empty:
+        df = df.merge(ph, on="test_name", how="left")
+    else:
+        for c in [
+            "exec_ms",
+            "merkle_ms",
+            "store_ms",
+            "merkle_overlap_pct",
+            "phase_bottleneck",
+        ]:
+            df[c] = np.nan if c != "phase_bottleneck" else None
+
     return df.sort_values("time_lost_ms", ascending=False).reset_index(drop=True)
+
+
+def fkv_summary(conn: sqlite3.Connection, suite_hash: str) -> dict | None:
+    """fkv catch-up summary for the home client's current run on a suite.
+
+    started/skipping/finished are counts of the FlatKeyValue generator log lines.
+    finished>0 means it had to (re)generate (catch-up cost); all-skipping means
+    the DB was already populated and caught up.
+    """
+    row = conn.execute(
+        """SELECT f.started, f.skipping, f.finished
+           FROM fkv_summary f JOIN runs r ON r.run_id=f.run_id
+           WHERE r.suite_hash=? AND r.client=? AND r.is_current=1 LIMIT 1""",
+        (suite_hash, HOME),
+    ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["caught_up"] = d["finished"] == 0  # never had to regenerate
+    return d
 
 
 def _scaling(sub: pd.DataFrame) -> str:
@@ -341,6 +389,17 @@ def targets_by_file(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
     )
     g = g.merge(bn, on="file", how="left")
     g["bottleneck"] = g["bottleneck"].fillna("even")
+    # dominant pipeline phase (exec/merkle/store) among below-par tests, if logs ingested
+    if "phase_bottleneck" in below.columns and below["phase_bottleneck"].notna().any():
+        ph = (
+            below.dropna(subset=["phase_bottleneck"])
+            .groupby("file")["phase_bottleneck"]
+            .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else "")
+            .rename("phase")
+        )
+        g = g.merge(ph, on="file", how="left")
+    else:
+        g["phase"] = None
     sc = (
         df.groupby("file")[["benchmark_mgas", "ratio"]]
         .apply(_scaling)

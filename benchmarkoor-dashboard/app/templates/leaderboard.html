@@ -37,7 +37,7 @@
       {% for r in sec.rows %}
       <tr class="{% if r.is_home %}home{% endif %}">
         <td>{{ r.rank }}</td>
-        <td>{{ r.instance_id }}</td>
+        <td>{{ r.instance_id }}{% if r.run_id %} <a href="/run/{{ r.run_id }}" title="block logs">·logs</a>{% endif %}</td>
         <td>{{ r.client }}</td>
         <td class="num"><strong>{{ "%.0f"|format(r.agg_mgas) }}</strong></td>
         <td class="num">{{ "%.0f"|format(r.median_mgas) }}</td>

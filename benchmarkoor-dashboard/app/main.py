@@ -13,6 +13,30 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import config, db, queries
+from .client import Client
+
+# per-block telemetry fields worth charting if a client populates them
+_BLOCKLOG_METRICS = [
+    "timing_total_ms",
+    "timing_execution_ms",
+    "timing_state_read_ms",
+    "timing_state_hash_ms",  # merkle
+    "timing_commit_ms",  # store
+    "throughput_mgas_per_sec",
+    "cache_account_hit_rate",
+    "cache_storage_hit_rate",
+    "cache_code_hit_rate",
+]
+
+
+def _fetch_block_logs(run_id: str) -> list[dict]:
+    """Live fetch (no storage) of per-block telemetry for one run."""
+    with Client() as c:
+        return c.paginate(
+            "test_stats_block_logs",
+            {"run_id": f"eq.{run_id}", "order": "block_number.asc"},
+        )
+
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Benchmarkoor Dashboard")
@@ -331,6 +355,84 @@ def test_detail(request: Request, suite: str, name: str):
     )
 
 
+@app.get("/run/{run_id}", response_class=HTMLResponse)
+def run_logs(request: Request, run_id: str):
+    """Lazy per-run block-logs view: per-block telemetry fetched live (not stored).
+
+    For ethrex only `timing_total_ms` is populated today; a flat-KV (fkv) catch-up
+    shows as an inflection in that curve (early tests slow until generation finishes,
+    then faster) — or a repeating per-test setup cost if it regenerates each test.
+    """
+    import pandas as pd
+
+    rows = _fetch_block_logs(run_id)
+    fig, populated, n = None, [], len(rows)
+    if rows:
+        df = (
+            pd.DataFrame(rows)
+            .sort_values(["block_number", "id"])
+            .reset_index(drop=True)
+        )
+        df["seq"] = range(1, len(df) + 1)
+        populated = [
+            m
+            for m in _BLOCKLOG_METRICS
+            if df.get(m) is not None and df[m].abs().sum() > 0
+        ]
+        fig = go.Figure()
+        for m in populated:
+            fig.add_trace(
+                go.Scatter(
+                    x=df["seq"],
+                    y=df[m],
+                    name=m,
+                    mode="lines",
+                    yaxis="y2" if "rate" in m or "throughput" in m else "y",
+                    line=dict(width=2 if m == "timing_total_ms" else 1.3),
+                )
+            )
+        fig.update_layout(
+            height=480,
+            hovermode="x unified",
+            margin=dict(l=10, r=10, t=10, b=40),
+            xaxis_title="block / test sequence",
+            yaxis_title="ms",
+            yaxis2=dict(title="rate", overlaying="y", side="right", showgrid=False),
+            legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+        )
+    return render(
+        request,
+        "run.html",
+        _ctx(
+            request,
+            conn=db.connect(),
+            suite_hash=None,
+            run_id=run_id,
+            n_blocks=n,
+            populated=populated,
+            fig=fig_json(fig) if fig is not None else None,
+        ),
+    )
+
+
+@app.get("/api/runs/{run_id}/block_logs")
+def api_block_logs(run_id: str, limit: int = 0):
+    """Live per-block telemetry for a run. `limit=0` returns all blocks."""
+    rows = _fetch_block_logs(run_id)
+    populated = sorted({m for m in _BLOCKLOG_METRICS for r in rows if (r.get(m) or 0)})
+    return JSONResponse(
+        {
+            "run_id": run_id,
+            "blocks": len(rows),
+            "populated_metrics": populated,
+            "note": "fkv (FlatKeyValue) catch-up is logged to ethrex stdout "
+            '("Generation of FlatKeyValue started/finished"); benchmarkoor only '
+            "stores parsed per-block telemetry, so for ethrex usually just timing_total_ms.",
+            "rows": rows if not limit else rows[:limit],
+        }
+    )
+
+
 # --------------------------------------------------------------------------
 # Agent-facing API: JSON endpoints + a single Markdown report to point Claude at
 # --------------------------------------------------------------------------
@@ -407,6 +509,21 @@ def api_coverage(suite: str | None = None):
     return JSONResponse(queries.coverage(conn, sh) if sh else {})
 
 
+@app.get("/api/fkv")
+def api_fkv(suite: str | None = None):
+    """FlatKeyValue catch-up summary for the home client's current run."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    return JSONResponse(
+        {
+            "suite_hash": sh,
+            "home": HOME,
+            "fkv": queries.fkv_summary(conn, sh) if sh else None,
+        }
+    )
+
+
 @app.get("/api/commits")
 def api_commits(suite: str | None = None):
     """Current home-client build + per-commit aggregate throughput timeline."""
@@ -473,9 +590,13 @@ def agent_md(request: Request):
         "which over-weights tiny tests).",
         f"- **`rank`** = {HOME}'s position among clients on that test (1 = fastest).",
         "- **`op`** = the operation under test (opcode or scenario), parsed from the test name.",
-        f"- **`bottleneck`** = where {HOME} most exceeds the fastest competitor's resource use on a "
-        "slow test: `cpu` (compute-bound), `io` (disk-bound), `memory` (alloc-bound), or `even`. "
-        "A hint at *what kind* of fix, not a guarantee.",
+        f"- **`phase`** = which pipeline stage dominates {HOME}'s block (`exec` / `merkle` / "
+        "`store`), parsed from the run log. For `merkle`, `%ov` is the exec/merkle overlap "
+        "(low overlap = merkle runs serially after exec). This is the most actionable signal.",
+        f"- **`resource`** (a.k.a. bottleneck) = where {HOME} most exceeds the fastest competitor's "
+        "resource use: `cpu`, `io`, `memory`, or `even`. Orthogonal hint at the kind of fix.",
+        f"- **fkv** line per suite = whether {HOME}'s FlatKeyValue store had to (re)generate during "
+        "the run (`finished>0`) or was already caught up (all `skipping`).",
         "- **`scaling`** (per file) = does the gap grow with gas? `worse-at-high-gas` suggests "
         "per-gas/algorithmic overhead; `flat` suggests fixed setup cost.",
         "- In the by-file table, `time_lost` counts **only tests where "
@@ -516,6 +637,21 @@ def agent_md(request: Request):
                 "",
             ]
 
+        fkv = queries.fkv_summary(conn, sh)
+        if fkv:
+            if fkv["caught_up"]:
+                L += [
+                    f"fkv: already caught up (DB pre-populated; {fkv['skipping']} "
+                    "container starts, 0 regenerations).",
+                    "",
+                ]
+            else:
+                L += [
+                    f"fkv: regenerated on {fkv['finished']} of {fkv['started']} "
+                    "container starts (catch-up cost incurred).",
+                    "",
+                ]
+
         cov = queries.coverage(conn, sh)
         L += [
             f"### Coverage: {cov['coverage_pct']}% "
@@ -542,10 +678,10 @@ def agent_md(request: Request):
                         "tests",
                         f"{HOME} below",
                         "time_lost (ms)",
-                        "bottleneck",
+                        "phase",
+                        "resource",
                         "scaling",
                         "median rank",
-                        "median ratio",
                     ],
                     [
                         [
@@ -553,10 +689,10 @@ def agent_md(request: Request):
                             int(r["tests"]),
                             int(r["below"]),
                             f"{r['time_lost_ms']:.1f}",
+                            r.get("phase") or "-",
                             r["bottleneck"],
                             r["scaling"],
                             f"{r['median_rank']:.0f}",
-                            f"{r['median_ratio']:.2f}",
                         ]
                         for r in top
                     ],
@@ -572,7 +708,6 @@ def agent_md(request: Request):
                 _md_table(
                     [
                         "op",
-                        "file",
                         "fork",
                         "gas(M)",
                         f"{HOME} Mgas/s",
@@ -580,13 +715,13 @@ def agent_md(request: Request):
                         "by",
                         "ratio",
                         "rank",
-                        "bottleneck",
+                        "phase",
+                        "resource",
                         "time_lost(ms)",
                     ],
                     [
                         [
                             r["op"] or "",
-                            r["file"],
                             r["fork"] or "",
                             r["benchmark_mgas"] or "",
                             f"{r['ethrex_mgas']:.0f}",
@@ -594,6 +729,14 @@ def agent_md(request: Request):
                             r["best_other_client"],
                             f"{r['ratio']:.2f}",
                             int(r["rank"]),
+                            (r.get("phase_bottleneck") or "-")
+                            + (
+                                f" {r['merkle_overlap_pct']:.0f}%ov"
+                                if r.get("phase_bottleneck") == "merkle"
+                                and r.get("merkle_overlap_pct")
+                                == r.get("merkle_overlap_pct")
+                                else ""
+                            ),
                             r["bottleneck"],
                             f"{r['time_lost_ms']:.1f}",
                         ]
