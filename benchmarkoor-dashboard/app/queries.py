@@ -578,6 +578,35 @@ def op_scaling(conn: sqlite3.Connection, suite_hash: str, op: str) -> pd.DataFra
     return out.sort_values("benchmark_mgas")
 
 
+def scaling_matrix(conn: sqlite3.Connection, suite_hash: str) -> dict | None:
+    """op × gas-level grid of the home client's ratio vs the best other client.
+    <1 (red) = home slower; lets you see every op and its gas-scaling at once."""
+    primary = primary_run_per_client(conn, suite_hash)
+    ts = _current_stats(conn, suite_hash)
+    if ts.empty:
+        return None
+    ts = ts[ts["run_id"].isin(primary.values())].copy()
+    ts["op"] = ts["test_name"].map(extract_op)
+    ts = ts.dropna(subset=["op", "benchmark_mgas"])
+    clients = [c for c in config.CLIENTS if c in ts["client"].unique()]
+    others = [c for c in clients if c != HOME]
+    if HOME not in clients or not others:
+        return None
+    g = ts.groupby(["op", "benchmark_mgas", "client"])["test_mgas_s"].mean().reset_index()
+    piv = g.pivot_table(index=["op", "benchmark_mgas"], columns="client", values="test_mgas_s")
+    if HOME not in piv.columns:
+        return None
+    avail = [c for c in others if c in piv.columns]
+    ratio = (piv[HOME] / piv[avail].max(axis=1)).rename("ratio").reset_index()
+    mat = ratio.pivot(index="op", columns="benchmark_mgas", values="ratio")
+    mat = mat.loc[mat.mean(axis=1).sort_values().index]  # worst (slowest) first
+    return {
+        "ops": list(mat.index),
+        "gas": [int(x) for x in mat.columns],
+        "z": [[None if v != v else round(float(v), 3) for v in row] for row in mat.values],
+    }
+
+
 def list_ops(conn: sqlite3.Connection, suite_hash: str) -> list[str]:
     ts = _current_stats(conn, suite_hash)
     if ts.empty:

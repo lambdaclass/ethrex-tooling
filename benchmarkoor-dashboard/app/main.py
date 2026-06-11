@@ -370,57 +370,59 @@ def test_detail(request: Request, suite: str, name: str):
 
 @app.get("/op", response_class=HTMLResponse)
 def op_scaling_page(request: Request, suite: str | None = None, op: str | None = None):
-    """Gas-scaling: Mgas/s vs benchmark gas for one op, home vs best other."""
+    """Gas-scaling. Default: a heatmap of every op × gas level (home ÷ best other)
+    so all data shows at once. `?op=` drills into one op's per-client lines."""
     conn = db.connect()
     db.init(conn)
     sh = _suite_or_default(conn, suite)
-    ops = queries.list_ops(conn, sh) if sh else []
-    if not op and ops:
-        op = ops[0]
-    df = queries.op_scaling(conn, sh, op) if (sh and op) else None
-    fig = None
-    if df is not None and not df.empty:
-        fig = go.Figure()
-        series = [c for c in config.CLIENTS if c in df.columns] + (
-            ["best_other"] if "best_other" in df.columns else []
-        )
-        for c in series:
-            is_home = c == HOME
-            fig.add_trace(
-                go.Scatter(
-                    x=df["benchmark_mgas"],
-                    y=df[c],
-                    name=c,
-                    mode="lines+markers",
-                    line=dict(
-                        color=COLORS.get(c, "#8b90a0")
-                        if c != "best_other"
-                        else "#cdd3df",
-                        width=3 if is_home else 1.6,
-                        dash="dot" if c == "best_other" else "solid",
-                    ),
-                )
+
+    if op:  # drill-down: one op, per-client lines across gas
+        df = queries.op_scaling(conn, sh, op) if sh else None
+        fig = None
+        if df is not None and not df.empty:
+            fig = go.Figure()
+            series = [c for c in config.CLIENTS if c in df.columns] + (
+                ["best_other"] if "best_other" in df.columns else []
             )
-        fig.update_layout(
-            height=460,
-            hovermode="x unified",
-            margin=dict(l=10, r=10, t=10, b=40),
-            xaxis_title="benchmark gas (M)",
-            yaxis_title="Mgas/s",
-            legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+            for c in series:
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["benchmark_mgas"], y=df[c], name=c, mode="lines+markers",
+                        line=dict(
+                            color=COLORS.get(c, "#8b90a0") if c != "best_other" else "#cdd3df",
+                            width=3 if c == HOME else 1.6,
+                            dash="dot" if c == "best_other" else "solid",
+                        ),
+                    )
+                )
+            fig.update_layout(
+                height=460, hovermode="x unified", margin=dict(l=10, r=10, t=10, b=40),
+                xaxis_title="benchmark gas (M)", yaxis_title="Mgas/s",
+                legend=dict(orientation="h", y=-0.2, font=dict(size=12)),
+            )
+        return render(request, "op.html",
+                      _ctx(request, conn, sh, op=op, fig=fig_json(fig) if fig else None))
+
+    # default: all-ops heatmap of ratio (home ÷ best other) across gas levels
+    m = queries.scaling_matrix(conn, sh) if sh else None
+    fig = None
+    if m and m["ops"]:
+        fig = go.Figure(
+            go.Heatmap(
+                z=m["z"], x=[f"{g}M" for g in m["gas"]], y=m["ops"],
+                zmid=1.0, zmin=0.4, zmax=1.6,
+                colorscale=[[0.0, "#b3263a"], [0.5, "#222633"], [1.0, "#2e9e6a"]],
+                colorbar=dict(title=f"{HOME} ÷ best", thickness=12),
+                hovertemplate="%{y} @ %{x}: %{z}×<extra></extra>",
+                xgap=1, ygap=1,
+            )
         )
-    return render(
-        request,
-        "op.html",
-        _ctx(
-            request,
-            conn,
-            sh,
-            op=op,
-            ops=ops,
-            fig=fig_json(fig) if fig is not None else None,
-        ),
-    )
+        fig.update_layout(
+            height=18 * len(m["ops"]) + 150, margin=dict(l=10, r=10, t=10, b=40),
+            xaxis_title="benchmark gas", yaxis=dict(autorange="reversed"),
+        )
+    return render(request, "op.html",
+                  _ctx(request, conn, sh, op=None, fig=fig_json(fig) if fig else None))
 
 
 @app.get("/merkle", response_class=HTMLResponse)
