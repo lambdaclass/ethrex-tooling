@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
 import plotly.graph_objects as go
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -311,3 +312,230 @@ def test_detail(request: Request, suite: str, name: str):
             request, conn, suite, name=name, row=row, fig=fig_json(fig) if fig else None
         ),
     )
+
+
+# --------------------------------------------------------------------------
+# Agent-facing API: JSON endpoints + a single Markdown report to point Claude at
+# --------------------------------------------------------------------------
+
+
+def _records(df) -> list:
+    """DataFrame -> JSON-safe list of dicts (NaN -> null)."""
+    if df is None or df.empty:
+        return []
+    return json.loads(df.to_json(orient="records"))
+
+
+def _active(conn):
+    s = queries.active_suites(conn)
+    if not s.empty:
+        s = s.sort_values("indexed_at", ascending=False)
+    return s
+
+
+@app.get("/api/suites")
+def api_suites():
+    conn = db.connect()
+    db.init(conn)
+    cols = [
+        "suite_hash",
+        "name",
+        "variant",
+        "tests_total",
+        "indexed_at",
+        "latest_run_ts",
+    ]
+    return JSONResponse(
+        _records(_active(conn)[cols]) if not _active(conn).empty else []
+    )
+
+
+@app.get("/api/leaderboard")
+def api_leaderboard(suite: str | None = None):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    lb = queries.leaderboard(conn, sh) if sh else None
+    return JSONResponse({"suite_hash": sh, "ranking": _records(lb)})
+
+
+@app.get("/api/targets")
+def api_targets(
+    suite: str | None = None, limit: int = 100, min_time_lost_ms: float = 0.0
+):
+    """Ranked optimization targets for the home client, by recoverable time."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    df = queries.opt_targets(conn, sh) if sh else None
+    if df is not None and not df.empty:
+        df = df[df["time_lost_ms"] >= min_time_lost_ms].head(limit)
+    return JSONResponse({"suite_hash": sh, "home": HOME, "targets": _records(df)})
+
+
+@app.get("/api/targets/by_file")
+def api_targets_by_file(suite: str | None = None):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    df = queries.targets_by_file(conn, sh) if sh else None
+    return JSONResponse({"suite_hash": sh, "home": HOME, "by_file": _records(df)})
+
+
+@app.get("/api/coverage")
+def api_coverage(suite: str | None = None):
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    return JSONResponse(queries.coverage(conn, sh) if sh else {})
+
+
+def _md_table(headers: list[str], rows: list[list]) -> str:
+    out = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for r in rows:
+        out.append("| " + " | ".join(str(c) for c in r) + " |")
+    return "\n".join(out)
+
+
+@app.get("/agent.md", response_class=PlainTextResponse)
+@app.get("/llm.md", response_class=PlainTextResponse)
+def agent_md(request: Request):
+    """Self-contained Markdown brief for an LLM agent: where to optimize ethrex."""
+    conn = db.connect()
+    db.init(conn)
+    last_sync = db.get_meta(conn, "last_sync")
+    base = str(request.base_url).rstrip("/")
+    L = [
+        f"# Benchmarkoor — {HOME} optimization brief",
+        "",
+        f"Source: {base} · data snapshot synced "
+        f"{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(int(last_sync))) if last_sync else 'unknown'}.",
+        f"Home client: **{HOME}**. Clients compared: {', '.join(config.CLIENTS)}.",
+        "",
+        "## How to read this",
+        "- Benchmarks are EL-client BAL execution tests; metric is **Mgas/s** (higher = faster).",
+        "- A client's suite ranking uses **gas-weighted aggregate Mgas/s** = Σ(test gas) / Σ(test time) "
+        "(real end-to-end throughput), not the per-test median.",
+        f"- **`time_lost_ms`** = {HOME}'s time on a test − the fastest competitor's time on that test. "
+        "It is how much wall-clock could be recovered. Targets are ranked by it (not by Mgas/s ratio, "
+        "which over-weights tiny tests).",
+        f"- **`rank`** = {HOME}'s position among clients on that test (1 = fastest).",
+        "- Optimize per **file/opcode** (the `by file` tables) — that's the actionable unit.",
+        "",
+        "Machine-readable equivalents: "
+        f"`{base}/api/targets?suite=<hash>`, `{base}/api/targets/by_file?suite=<hash>`, "
+        f"`{base}/api/leaderboard?suite=<hash>`, `{base}/api/coverage?suite=<hash>`, `{base}/api/suites`.",
+    ]
+    for s in _active(conn).to_dict("records"):
+        sh = s["suite_hash"]
+        L += [
+            "",
+            "---",
+            "",
+            f"## Suite: {s['name']}  (`{sh}`)",
+            f"{s['variant']} · {s['tests_total']} tests",
+            "",
+        ]
+
+        lb = queries.leaderboard(conn, sh)
+        if not lb.empty:
+            L += [
+                "### Leaderboard (aggregate Mgas/s)",
+                _md_table(
+                    ["#", "instance", "agg Mgas/s", "median", "rank vs " + HOME],
+                    [
+                        [
+                            int(r["rank"]),
+                            r["instance_id"],
+                            f"{r['agg_mgas']:.0f}",
+                            f"{r['median_mgas']:.0f}",
+                            "← home" if r["client"] == HOME else "",
+                        ]
+                        for r in lb.to_dict("records")
+                    ],
+                ),
+                "",
+            ]
+
+        cov = queries.coverage(conn, sh)
+        L += [
+            f"### Coverage: {cov['coverage_pct']}% "
+            f"({cov['home']}/{cov['union']} tests; {cov['missing_count']} not run by {HOME})",
+            "",
+        ]
+        if cov["by_file"]:
+            L += [
+                _md_table(
+                    ["file", "missing tests"],
+                    [[f["file"], f["n"]] for f in cov["by_file"][:15]],
+                ),
+                "",
+            ]
+
+        bf = queries.targets_by_file(conn, sh)
+        if not bf.empty:
+            top = bf.head(15).to_dict("records")
+            L += [
+                "### Top subsystems to optimize (by recoverable time)",
+                _md_table(
+                    [
+                        "file",
+                        "tests",
+                        f"{HOME} below others",
+                        "time_lost (ms)",
+                        "median rank",
+                        "median ratio",
+                    ],
+                    [
+                        [
+                            r["file"],
+                            int(r["tests"]),
+                            int(r["below"]),
+                            f"{r['time_lost_ms']:.1f}",
+                            f"{r['median_rank']:.0f}",
+                            f"{r['median_ratio']:.2f}",
+                        ]
+                        for r in top
+                    ],
+                ),
+                "",
+            ]
+
+        tg = queries.opt_targets(conn, sh)
+        if not tg.empty:
+            top = tg.head(25).to_dict("records")
+            L += [
+                "### Top individual test targets (by recoverable time)",
+                _md_table(
+                    [
+                        "test",
+                        "fork",
+                        "gas(M)",
+                        f"{HOME} Mgas/s",
+                        "best other",
+                        "by",
+                        "ratio",
+                        "rank",
+                        "time_lost(ms)",
+                    ],
+                    [
+                        [
+                            r["test_name"],
+                            r["fork"] or "",
+                            r["benchmark_mgas"] or "",
+                            f"{r['ethrex_mgas']:.0f}",
+                            f"{r['best_other_mgas']:.0f}",
+                            r["best_other_client"],
+                            f"{r['ratio']:.2f}",
+                            int(r["rank"]),
+                            f"{r['time_lost_ms']:.1f}",
+                        ]
+                        for r in top
+                    ],
+                ),
+                "",
+            ]
+    return "\n".join(L)

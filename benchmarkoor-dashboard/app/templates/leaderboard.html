@@ -21,9 +21,16 @@
     {% if sec.fig %}<div id="lb-{{ s.suite_hash }}" class="chart"></div>{% endif %}
     <table class="grid">
       <thead><tr>
-        <th>#</th><th>instance</th><th>client</th>
-        <th class="num">Mgas/s (agg)</th><th class="num">median</th><th class="num">mean</th>
-        <th class="num">wins</th><th class="num">gas-won %</th><th class="num">total time (s)</th><th class="num">tests</th>
+        <th title="Rank within this suite by aggregate Mgas/s (1 = fastest).">#</th>
+        <th title="Client instance / mode, e.g. nethermind-bal-full vs -sequential.">instance</th>
+        <th title="Execution-layer client.">client</th>
+        <th class="num" title="Gas-weighted aggregate throughput = sum(test gas) / sum(test time). The real end-to-end speed; this is the ranking metric.">Mgas/s (agg)</th>
+        <th class="num" title="Median of per-test Mgas/s. Every test weighted equally, so small fast tests dominate. Same unit (Mgas/s) as agg.">median</th>
+        <th class="num" title="Mean of per-test Mgas/s. Equal weight per test (not gas-weighted). Same unit (Mgas/s) as agg.">mean</th>
+        <th class="num" title="Number of tests where this instance has the highest per-test Mgas/s.">wins</th>
+        <th class="num" title="Share of total suite gas on tests this instance wins (gas-weighted version of wins).">gas-won %</th>
+        <th class="num" title="Sum of per-test execution time across the suite, in seconds. Lower is faster.">total time (s)</th>
+        <th class="num" title="Number of tests with results in this instance's current (full) run.">tests</th>
       </tr></thead>
       <tbody>
       {% for r in sec.rows %}

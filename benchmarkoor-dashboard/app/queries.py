@@ -201,6 +201,71 @@ def coverage(conn: sqlite3.Connection, suite_hash: str) -> dict:
     }
 
 
+# ---- optimization targets (agent-facing) -------------------------------
+
+
+def opt_targets(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
+    """Per-test view for picking optimization targets for the home client.
+
+    Priority is `time_lost_ms` = home test time − fastest competitor's test time
+    (how much wall-clock the home client could recover on that test), not the raw
+    Mgas/s ratio (which over-weights tiny tests).
+    """
+    primary = primary_run_per_client(conn, suite_hash)
+    ts = _current_stats(conn, suite_hash)
+    if ts.empty:
+        return ts
+    ts = ts[ts["run_id"].isin(primary.values())]
+    mg = ts.pivot_table(
+        index=["test_name", "file", "fork", "benchmark_mgas"],
+        columns="client",
+        values="test_mgas_s",
+    )
+    tm = ts.pivot_table(
+        index=["test_name", "file", "fork", "benchmark_mgas"],
+        columns="client",
+        values="test_time_ns",
+    )
+    clients = [c for c in config.CLIENTS if c in mg.columns]
+    others = [c for c in clients if c != HOME]
+    if HOME not in mg.columns or not others:
+        return pd.DataFrame()
+    df = mg.index.to_frame(index=False)
+    df["ethrex_mgas"] = mg[HOME].to_numpy()
+    df["median_other_mgas"] = mg[others].median(axis=1).to_numpy()
+    df["best_other_mgas"] = mg[others].max(axis=1).to_numpy()
+    df["ethrex_time_ns"] = tm[HOME].to_numpy()
+    df["best_other_time_ns"] = tm[others].min(axis=1).to_numpy()
+    df["best_other_client"] = tm[others].idxmin(axis=1).to_numpy()
+    df["ratio"] = df["ethrex_mgas"] / df["median_other_mgas"]
+    df["time_lost_ms"] = (df["ethrex_time_ns"] - df["best_other_time_ns"]) / 1e6
+    df["rank"] = (
+        mg[clients].rank(axis=1, ascending=False, method="min")[HOME].to_numpy()
+    )
+    df["n_clients"] = mg[clients].notna().sum(axis=1).to_numpy()
+    return df.sort_values("time_lost_ms", ascending=False).reset_index(drop=True)
+
+
+def targets_by_file(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
+    """Aggregate targets per file/opcode — the 'which subsystem to attack' view."""
+    df = opt_targets(conn, suite_hash)
+    if df.empty:
+        return df
+    g = (
+        df.groupby("file")
+        .agg(
+            tests=("test_name", "count"),
+            below=("ratio", lambda s: int((s < 1.0).sum())),
+            time_lost_ms=("time_lost_ms", "sum"),
+            median_rank=("rank", "median"),
+            median_ratio=("ratio", "median"),
+        )
+        .reset_index()
+        .sort_values("time_lost_ms", ascending=False)
+    )
+    return g
+
+
 # ---- trends -------------------------------------------------------------
 
 

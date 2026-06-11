@@ -25,11 +25,28 @@ Re-run `uv run python -m app.sync` to refresh the snapshot (idempotent).
 ## Pages
 
 - **Overview** — active-suite cards: ethrex coverage %, leaderboard rank, # tests below median.
-- **Leaderboard** — per-instance ranking by median Mgas/s, win count, coverage.
+- **Leaderboard** — per-instance ranking by gas-weighted aggregate Mgas/s; median/mean/wins/gas-won as secondary columns.
 - **Coverage** — ethrex's missing tests vs the union run by all clients, grouped by file.
 - **Compare** — per-test Mgas/s matrix (ethrex vs each client), ratio vs median, rank; filterable.
 - **Trends** — suite-level Mgas/s per instance across runs over time.
 - **Test detail** — per-client bar for a single test.
+
+## Agent API
+
+Point an LLM agent at **`/agent.md`** (alias `/llm.md`) — a self-contained Markdown brief:
+metric definitions, per-suite leaderboard, coverage gaps, and ranked optimization targets
+for the home client (by `time_lost_ms` = home time − fastest competitor's time, per test,
+aggregated per file/opcode). No scraping or MCP needed.
+
+Machine-readable JSON (all take `?suite=<hash>`, default = latest compute suite):
+
+- `GET /api/suites` — active suites + hashes.
+- `GET /api/leaderboard` — per-instance aggregate ranking.
+- `GET /api/targets?limit=&min_time_lost_ms=` — ranked per-test targets.
+- `GET /api/targets/by_file` — targets aggregated per file/opcode.
+- `GET /api/coverage` — tests not run by the home client.
+
+`time_lost_ms` ranks by recoverable wall-clock, not Mgas/s ratio (which over-weights tiny tests).
 
 ## Data model
 
