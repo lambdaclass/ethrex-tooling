@@ -40,10 +40,10 @@ h2 { font-size: 20px; margin: 32px 0 14px; }
 .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 17px; }
 .card-links { display: flex; gap: 16px; margin-top: 16px; font-size: 15px; }
 
-.stat-row { display: flex; gap: 26px; margin: 18px 0 6px; }
-.stat { display: flex; flex-direction: column; }
+.stat-row { display: flex; flex-wrap: wrap; gap: 18px 24px; margin: 18px 0 6px; }
+.stat { display: flex; flex-direction: column; min-width: 104px; }
 .stat .label { font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .3px; }
-.stat .big { font-size: 34px; font-weight: 700; line-height: 1.2; }
+.stat .big { font-size: 30px; font-weight: 700; line-height: 1.2; }
 .stat .sub { font-size: 13px; }
 .big.good, .good { color: var(--good); }
 .big.bad, .bad { color: var(--bad); }
