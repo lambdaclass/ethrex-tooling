@@ -46,8 +46,19 @@ Machine-readable JSON (all take `?suite=<hash>`, default = latest compute suite)
 - `GET /api/targets/by_file` — targets aggregated per file/opcode.
 - `GET /api/coverage` — tests not run by the home client.
 - `GET /api/commits` — current home-client build + per-commit aggregate-throughput timeline.
+- `GET /api/fkv` — FlatKeyValue catch-up summary for the home client's current run.
+- `GET /run/{run_id}` + `GET /api/runs/{run_id}/block_logs` — lazy per-run block telemetry (live fetch, nothing stored).
 
 `time_lost_ms` ranks by recoverable wall-clock, not Mgas/s ratio (which over-weights tiny tests).
+
+### Phase timings + fkv (from run logs)
+
+For each ethrex run, sync streams `benchmarkoor.log` (which embeds the client's `[METRIC] BLOCK`
+output), parses the per-test pipeline phase split (`exec` / `merkle` / `store`, plus the merkle
+exec/merkle overlap), and the FlatKeyValue generator markers, then stores only the derived rows.
+The raw log is never written to disk. Targets therefore carry a `phase` bottleneck (the pipeline
+stage) alongside the `resource` bottleneck (cpu/io/memory), and `/agent.md` notes whether fkv was
+already caught up (all "skipping") or had to regenerate during the run (`finished > 0`).
 
 ### Commit association
 
