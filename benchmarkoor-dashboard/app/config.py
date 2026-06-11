@@ -25,6 +25,15 @@ DB_PATH = Path(os.getenv("DASH_DB_PATH", ROOT / "data" / "benchmarkoor.db"))
 ACTIVE_WINDOW_DAYS = int(os.getenv("DASH_ACTIVE_WINDOW_DAYS", "7"))
 HOME_CLIENT = os.getenv("DASH_HOME_CLIENT", "ethrex")
 
+# Home-client source repo/branch: the benchmark image (mutable tag) is rebuilt on
+# each push to this branch, so a run's commit = branch HEAD at the run's timestamp.
+# Commits are fetched via `gh` during sync; mapping is by time (+ optional lag).
+ETHREX_REPO = os.getenv("DASH_ETHREX_REPO", "lambdaclass/ethrex")
+ETHREX_BRANCH = os.getenv("DASH_ETHREX_BRANCH", "bal-devnet-7")
+DEPLOY_LAG_MIN = int(
+    os.getenv("DASH_DEPLOY_LAG_MIN", "0")
+)  # build+push delay (minutes)
+
 # Display order / known clients.
 CLIENTS = ["besu", "geth", "nethermind", "ethrex", "erigon", "reth"]
 

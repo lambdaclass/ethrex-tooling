@@ -138,6 +138,7 @@ def leaderboard(request: Request):
                 "suite": s,
                 "rows": lb.to_dict("records") if not lb.empty else [],
                 "fig": fig_json(fig) if fig is not None else None,
+                "commit": queries.current_commit(conn, s["suite_hash"]),
             }
         )
     return render(
@@ -205,8 +206,9 @@ def compare(
     return render(request, tmpl, ctx)
 
 
-def _trend_fig(df) -> go.Figure | None:
-    """Multi-line Mgas/s over time, home client emphasized, partial-run spikes removed."""
+def _trend_fig(df, markers: list[dict] | None = None) -> go.Figure | None:
+    """Multi-line Mgas/s over time, home client emphasized, partial-run spikes removed.
+    `markers` draws a dashed vertical deploy line per home-client commit."""
     import pandas as pd
 
     if df is None or df.empty:
@@ -242,6 +244,20 @@ def _trend_fig(df) -> go.Figure | None:
                 opacity=1.0 if (is_home or is_full) else 0.65,
             )
         )
+    for m in markers or []:
+        x = pd.to_datetime(m["committed_at"], unit="s")
+        if not (df["dt"].min() <= x <= df["dt"].max()):
+            continue
+        fig.add_vline(
+            x=x,
+            line_width=1,
+            line_dash="dash",
+            line_color="#8b90a0",
+            annotation_text=m["sha"][:7],
+            annotation_position="top",
+            annotation_font_size=10,
+            annotation_font_color="#8b90a0",
+        )
     fig.update_layout(
         height=460,
         hovermode="x unified",
@@ -262,7 +278,8 @@ def trends(request: Request):
     sections = []
     for s in suites.to_dict("records"):
         df = queries.trends(conn, s["suite_hash"])
-        fig = _trend_fig(df)
+        markers = queries.deploy_markers(conn, s["suite_hash"])
+        fig = _trend_fig(df, markers)
         n_runs = 0 if df is None else len(df)
         sections.append(
             {
@@ -390,6 +407,37 @@ def api_coverage(suite: str | None = None):
     return JSONResponse(queries.coverage(conn, sh) if sh else {})
 
 
+@app.get("/api/commits")
+def api_commits(suite: str | None = None):
+    """Current home-client build + per-commit aggregate throughput timeline."""
+    conn = db.connect()
+    db.init(conn)
+    sh = _suite_or_default(conn, suite)
+    return JSONResponse(
+        {
+            "suite_hash": sh,
+            "home": HOME,
+            "current": queries.current_commit(conn, sh) if sh else None,
+            "timeline": _records(queries.commit_timeline(conn, sh)) if sh else [],
+        }
+    )
+
+
+def _cur_build_line(conn) -> str:
+    c = queries.current_commit(conn)
+    if not c:
+        return (
+            f"{config.HOME_CLIENT} build: unknown "
+            f"(no commits mapped; needs `gh` access to {config.ETHREX_REPO})."
+        )
+    when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(int(c["committed_at"])))
+    return (
+        f"Current {config.HOME_CLIENT} build: **`{c['sha'][:9]}`** — {c['message']} "
+        f"(committed {when}, {config.ETHREX_REPO}@{config.ETHREX_BRANCH}). "
+        "Runs are mapped to the branch commit that was HEAD at run time."
+    )
+
+
 def _md_table(headers: list[str], rows: list[list]) -> str:
     out = [
         "| " + " | ".join(headers) + " |",
@@ -414,6 +462,7 @@ def agent_md(request: Request):
         f"Source: {base} · data snapshot synced "
         f"{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(int(last_sync))) if last_sync else 'unknown'}.",
         f"Home client: **{HOME}**. Clients compared: {', '.join(config.CLIENTS)}.",
+        _cur_build_line(conn),
         "",
         "## How to read this",
         "- Benchmarks are EL-client BAL execution tests; metric is **Mgas/s** (higher = faster).",
@@ -549,6 +598,30 @@ def agent_md(request: Request):
                             f"{r['time_lost_ms']:.1f}",
                         ]
                         for r in top
+                    ],
+                ),
+                "",
+            ]
+
+        tl = queries.commit_timeline(conn, sh)
+        if not tl.empty and len(tl) > 1:
+            rows = tl.tail(10).to_dict("records")
+            L += [
+                f"### {HOME} commit timeline (aggregate Mgas/s, this suite)",
+                "How throughput moved across deployed commits (Δ vs previous):",
+                _md_table(
+                    ["commit", "message", "runs", "mean Mgas/s", "Δ vs prev"],
+                    [
+                        [
+                            r["sha"][:9],
+                            (r["message"] or "")[:48],
+                            int(r["runs"]),
+                            f"{r['mean_mgas']:.0f}",
+                            "—"
+                            if r["delta_vs_prev"] != r["delta_vs_prev"]
+                            else f"{r['delta_vs_prev']:+.0f}",
+                        ]
+                        for r in rows
                     ],
                 ),
                 "",

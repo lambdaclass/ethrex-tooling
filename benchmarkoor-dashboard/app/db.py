@@ -38,10 +38,19 @@ CREATE TABLE IF NOT EXISTS runs (
     test_gas_used_duration INTEGER,
     mgas_s        REAL,
     is_current    INTEGER DEFAULT 0,
-    is_full       INTEGER DEFAULT 0
+    is_full       INTEGER DEFAULT 0,
+    ethrex_commit TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_suite ON runs(suite_hash);
 CREATE INDEX IF NOT EXISTS idx_runs_current ON runs(is_current);
+
+CREATE TABLE IF NOT EXISTS commits (
+    sha          TEXT PRIMARY KEY,
+    committed_at INTEGER,
+    message      TEXT,
+    branch       TEXT,
+    url          TEXT
+);
 
 CREATE TABLE IF NOT EXISTS test_stats (
     run_id        TEXT,

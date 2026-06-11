@@ -57,6 +57,8 @@ h2 { font-size: 20px; margin: 32px 0 14px; }
 .lb-suite.dim:hover, .cards.dim:hover { opacity: 1; transition: opacity .2s; }
 
 .lb-suite { margin-bottom: 36px; }
+.commit { margin: -4px 0 12px; font-size: 13px; }
+.commit code { color: var(--accent); }
 .lb-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .lb-head h2 { margin: 0; }
 .lb-grid { display: grid; grid-template-columns: minmax(360px, 1fr) 1.3fr; gap: 22px; align-items: start; }

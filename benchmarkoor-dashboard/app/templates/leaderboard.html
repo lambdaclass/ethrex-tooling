@@ -17,6 +17,7 @@
     <h2>{{ s.name }}</h2>
     <span class="muted">{{ s.variant }} · {{ s.tests_total }} tests · {{ s.runs_total }} runs ({{ s.runs_completed }} completed) · created {{ s.indexed_at }}</span>
   </div>
+  {% if sec.commit %}<p class="muted commit">{{ home }} build: <code>{{ sec.commit.sha[:9] }}</code> {{ sec.commit.message }}</p>{% endif %}
   <div class="lb-grid">
     {% if sec.fig %}<div id="lb-{{ s.suite_hash }}" class="chart"></div>{% endif %}
     <table class="grid">

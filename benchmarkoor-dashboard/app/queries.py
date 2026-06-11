@@ -355,9 +355,62 @@ def targets_by_file(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
 
 def trends(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
     return pd.read_sql(
-        """SELECT run_id, instance_id, client, timestamp, mgas_s, tests_passed, tests_failed
+        """SELECT run_id, instance_id, client, timestamp, mgas_s, tests_passed,
+                  tests_failed, ethrex_commit
            FROM runs WHERE suite_hash=? AND status='completed' AND mgas_s IS NOT NULL
            ORDER BY timestamp""",
         conn,
         params=(suite_hash,),
     )
+
+
+# ---- commit association (home client) ----------------------------------
+
+
+def current_commit(
+    conn: sqlite3.Connection, suite_hash: str | None = None
+) -> dict | None:
+    """Commit of the latest home-client run (optionally within one suite)."""
+    where = "r.client=? AND r.ethrex_commit IS NOT NULL"
+    params: list = [HOME]
+    if suite_hash:
+        where += " AND r.suite_hash=?"
+        params.append(suite_hash)
+    row = conn.execute(
+        f"""SELECT c.sha, c.message, c.committed_at, c.url, r.timestamp run_ts
+            FROM runs r JOIN commits c ON c.sha=r.ethrex_commit
+            WHERE {where} ORDER BY r.timestamp DESC LIMIT 1""",
+        params,
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def commit_timeline(conn: sqlite3.Connection, suite_hash: str) -> pd.DataFrame:
+    """Per-commit aggregate throughput for the home client on a suite — lets an
+    agent see whether a commit improved things vs the previous one."""
+    df = pd.read_sql(
+        """SELECT r.ethrex_commit sha, c.message, c.committed_at,
+                  COUNT(*) runs, AVG(r.mgas_s) mean_mgas, MAX(r.mgas_s) best_mgas,
+                  MAX(r.timestamp) last_run
+           FROM runs r JOIN commits c ON c.sha=r.ethrex_commit
+           WHERE r.suite_hash=? AND r.client=? AND r.status='completed'
+                 AND r.mgas_s IS NOT NULL
+           GROUP BY r.ethrex_commit ORDER BY c.committed_at""",
+        conn,
+        params=(suite_hash, HOME),
+    )
+    if not df.empty:
+        df["delta_vs_prev"] = df["mean_mgas"].diff()
+    return df
+
+
+def deploy_markers(conn: sqlite3.Connection, suite_hash: str) -> list[dict]:
+    """Commits that fall within the suite's home-client run time range (for chart
+    deploy lines). Only commits actually exercised by a run are returned."""
+    rows = conn.execute(
+        """SELECT DISTINCT c.sha, c.committed_at, c.message
+           FROM runs r JOIN commits c ON c.sha=r.ethrex_commit
+           WHERE r.suite_hash=? AND r.client=? ORDER BY c.committed_at""",
+        (suite_hash, HOME),
+    ).fetchall()
+    return [dict(r) for r in rows]

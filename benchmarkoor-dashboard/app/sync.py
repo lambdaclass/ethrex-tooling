@@ -13,6 +13,9 @@ Idempotent: re-running refreshes everything.
 
 from __future__ import annotations
 
+import calendar
+import json
+import subprocess
 import time
 
 from . import config, db
@@ -20,6 +23,58 @@ from .client import Client
 from .parse import parse_suite_name, parse_test_name
 
 WINDOW = config.ACTIVE_WINDOW_DAYS * 86400
+
+
+def _iso_to_unix(s: str) -> int:
+    return calendar.timegm(time.strptime(s, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def fetch_commits(conn, verbose: bool = True) -> int:
+    """Pull the home-client branch's commit history via `gh` (sha + date + message).
+
+    Best-effort: if gh is missing/unauthenticated, commits stay empty and runs are
+    simply left without a commit association.
+    """
+    repo, branch = config.ETHREX_REPO, config.ETHREX_BRANCH
+    try:
+        out = subprocess.run(
+            [
+                "gh",
+                "api",
+                "--paginate",
+                f"repos/{repo}/commits?sha={branch}&per_page=100",
+                "--jq",
+                ".[] | {sha:.sha, date:.commit.committer.date, "
+                'msg:(.commit.message|split("\\n")[0]), url:.html_url}',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        if verbose:
+            print(f"  commits: skipped ({e})")
+        return 0
+    if out.returncode != 0:
+        if verbose:
+            print(f"  commits: gh failed ({out.stderr.strip()[:120]})")
+        return 0
+    n = 0
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        c = json.loads(line)
+        conn.execute(
+            "INSERT INTO commits(sha,committed_at,message,branch,url) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(sha) DO UPDATE SET committed_at=excluded.committed_at, "
+            "message=excluded.message, branch=excluded.branch, url=excluded.url",
+            (c["sha"], _iso_to_unix(c["date"]), c["msg"], branch, c["url"]),
+        )
+        n += 1
+    conn.commit()
+    if verbose:
+        print(f"  commits: {n} from {repo}@{branch}")
+    return n
 
 
 def _mgas_s(gas_used: int, dur_ns: int) -> float | None:
@@ -225,6 +280,24 @@ def sync(verbose: bool = True) -> dict[str, int]:
             if verbose:
                 flag = "" if is_full else f"  ⚠ PARTIAL ({len(rows)}/{need})"
                 print(f"  [{i}/{len(pairs)}] {inst}: {len(rows)} tests{flag}")
+        conn.commit()
+
+        # 6. associate home-client runs to the branch commit live at their timestamp.
+        counts["commits"] = fetch_commits(conn, verbose)
+        lag = config.DEPLOY_LAG_MIN * 60
+        conn.execute("UPDATE runs SET ethrex_commit=NULL")
+        conn.execute(
+            "UPDATE runs SET ethrex_commit=("
+            "  SELECT sha FROM commits c WHERE c.committed_at + ? <= runs.timestamp"
+            "  ORDER BY c.committed_at DESC LIMIT 1) "
+            "WHERE client=?",
+            (lag, config.HOME_CLIENT),
+        )
+        mapped = conn.execute(
+            "SELECT COUNT(*) FROM runs WHERE client=? AND ethrex_commit IS NOT NULL",
+            (config.HOME_CLIENT,),
+        ).fetchone()[0]
+        counts["runs_with_commit"] = mapped
         conn.commit()
 
         db.set_meta(conn, "last_sync", str(int(time.time())))

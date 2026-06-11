@@ -45,8 +45,19 @@ Machine-readable JSON (all take `?suite=<hash>`, default = latest compute suite)
 - `GET /api/targets?limit=&min_time_lost_ms=` — ranked per-test targets.
 - `GET /api/targets/by_file` — targets aggregated per file/opcode.
 - `GET /api/coverage` — tests not run by the home client.
+- `GET /api/commits` — current home-client build + per-commit aggregate-throughput timeline.
 
 `time_lost_ms` ranks by recoverable wall-clock, not Mgas/s ratio (which over-weights tiny tests).
+
+### Commit association
+
+The benchmark image uses a mutable tag (`ethpandaops/ethrex:bal-devnet-7`) rebuilt on each push
+to its branch, so a run's commit = the branch HEAD at the run's timestamp. Sync fetches the
+branch commit history via `gh` (`DASH_ETHREX_REPO`/`DASH_ETHREX_BRANCH`) and maps each home-client
+run to its commit by time (optionally offset by `DASH_DEPLOY_LAG_MIN` for build+push lag). This
+powers the build line + commit timeline in `/agent.md`, `/api/commits`, the leaderboard build
+label, and the deploy markers on the Trends chart. Needs `gh` authenticated; skipped gracefully
+if unavailable.
 
 ## Data model
 
@@ -54,4 +65,5 @@ Machine-readable JSON (all take `?suite=<hash>`, default = latest compute suite)
   `DASH_ACTIVE_WINDOW_DAYS` of the newest run) into SQLite.
 - Comparisons use the **latest completed run per (suite, instance)**.
 - Primary metric is `test_mgas_s` (Mgas/s, higher is better).
-- Tuning via env: `DASH_DB_PATH`, `DASH_ACTIVE_WINDOW_DAYS`, `DASH_HOME_CLIENT`.
+- Tuning via env: `DASH_DB_PATH`, `DASH_ACTIVE_WINDOW_DAYS`, `DASH_HOME_CLIENT`,
+  `DASH_ETHREX_REPO`, `DASH_ETHREX_BRANCH`, `DASH_DEPLOY_LAG_MIN`.
