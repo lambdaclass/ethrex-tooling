@@ -75,9 +75,12 @@ class Client:
         return data  # some endpoints return a bare list
 
     def paginate(
-        self, table: str, params: dict[str, Any] | None = None, page: int = 1000
+        self, table: str, params: dict[str, Any] | None = None, page: int = 250
     ) -> list[dict]:
-        """Pull every row of a query table by walking limit/offset."""
+        """Pull every row of a query table by walking limit/offset.
+
+        page is capped at 250: the API 500s on heavy tables (e.g. runs, with its
+        large steps_json blobs) when limit >= 500, so we stay under that cap."""
         params = dict(params or {})
         offset = 0
         out: list[dict] = []
