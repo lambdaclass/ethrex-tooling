@@ -305,9 +305,12 @@ def sync(verbose: bool = True) -> dict[str, int]:
             tuple(active),
         ) if active else None
         for h in active:
-            runs = c.paginate(
-                "runs", {"suite_hash": f"eq.{h}", "order": "timestamp.desc"}
-            )
+            # order by id (PK, indexed) not timestamp: ORDER BY timestamp + OFFSET
+            # forces an unindexed sort that hits the API's statement timeout and 500s
+            # on large run sets. id is unique and stable, so pagination is complete;
+            # row order doesn't matter here (every page is stored, current run is
+            # derived separately).
+            runs = c.paginate("runs", {"suite_hash": f"eq.{h}", "order": "id.desc"})
             for r in runs:
                 step = (r.get("steps_json") or {}).get("test") or {}
                 gas, dur = step.get("gas_used"), step.get("gas_used_duration")
