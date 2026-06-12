@@ -302,6 +302,43 @@ def _trend_fig(df, markers: list[dict] | None = None) -> go.Figure | None:
         legend=dict(orientation="h", y=-0.18, font=dict(size=12)),
         yaxis_title="Mgas/s (aggregate)",
     )
+    # ethrex joined later than other clients; default the view to its lifetime
+    # (with a small pad) and offer a one-click toggle back to the full range.
+    home_dt = df[df["client"] == HOME]["dt"]
+    if not home_dt.empty:
+        lo, hi = home_dt.min(), home_dt.max()
+        pad = (hi - lo) * 0.03 or pd.Timedelta(hours=12)
+        rng = [(lo - pad).isoformat(), (hi + pad).isoformat()]
+        fig.update_xaxes(range=rng)
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    showactive=False,
+                    x=0,
+                    xanchor="left",
+                    y=1.12,
+                    yanchor="top",
+                    pad=dict(t=0, b=0),
+                    bgcolor="#1b1e27",
+                    bordercolor="#262a36",
+                    font=dict(size=11, color="#c7ccd8"),
+                    buttons=[
+                        dict(
+                            label=f"{HOME} lifetime",
+                            method="relayout",
+                            args=[{"xaxis.range": rng, "xaxis.autorange": False}],
+                        ),
+                        dict(
+                            label="Full range",
+                            method="relayout",
+                            args=[{"xaxis.autorange": True}],
+                        ),
+                    ],
+                )
+            ]
+        )
     return fig
 
 
