@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Compare{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Per-test comparison</h1>{{ suite_picker("/compare") }}</div>
+
+<form class="filters" hx-get="/compare" hx-target="#cmp" hx-include="this" hx-trigger="change">
+  <input type="hidden" name="suite" value="{{ suite_hash }}">
+  <label>File
+    <select name="file"><option value="">all</option>
+    {% for f in files %}<option value="{{ f }}" {% if f==file %}selected{% endif %}>{{ f }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Fork
+    <select name="fork"><option value="">all</option>
+    {% for f in forks %}<option value="{{ f }}" {% if f==fork %}selected{% endif %}>{{ f }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Sort
+    <select name="sort">
+      {% for s in ["ratio","home_rank","benchmark_mgas","test_name"] %}
+      <option value="{{ s }}" {% if s==sort %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="chk"><input type="checkbox" name="below" value="1" {% if below %}checked{% endif %}> only where {{ home }} below median</label>
+</form>
+
+<div id="cmp">
+  {% include "_compare_table.html" %}
+</div>
+{% endblock %}

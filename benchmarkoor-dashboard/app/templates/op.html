@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Gas scaling{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Gas scaling{% if op %} · {{ op }}{% endif %}</h1>{{ suite_picker("/op") }}</div>
+{% if op %}
+<p class="muted"><a href="/op?suite={{ suite_hash }}">← all operations</a> · Mgas/s at each benchmark gas level
+  for <code>{{ op }}</code>, {{ home }} vs the other clients.</p>
+{% else %}
+<p class="muted">Every operation × gas level: <strong>{{ home }} ÷ fastest other client</strong>.
+  Red = {{ home }} slower, green = faster. A row that reddens left→right means the gap grows with gas
+  (per-gas overhead); a uniform row is a fixed deficit. Click a row's op on the
+  <a href="/merkle?suite={{ suite_hash }}">merkle</a> / <a href="/compare?suite={{ suite_hash }}">compare</a>
+  pages to drill in.</p>
+{% endif %}
+{% if fig %}<div id="op-chart" class="chart"></div>{% else %}<p class="warn">No data.</p>{% endif %}
+{% endblock %}
+{% block scripts %}<script>drawPlot("op-chart", {{ fig|tojson if fig else 'null' }});</script>{% endblock %}

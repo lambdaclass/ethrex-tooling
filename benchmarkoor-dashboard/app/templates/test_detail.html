@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Test{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Test detail</h1></div>
+<p class="tname-full">{{ name }}</p>
+{% if not row %}<p class="warn">No current-run data for this test in this suite.</p>{% else %}
+{% if fig %}<div id="t-chart" class="chart"></div>{% endif %}
+<table class="grid">
+  <tbody>
+    {% if row.ratio==row.ratio %}<tr><th>{{ home }} ÷ median(others)</th><td class="{% if row.ratio<1 %}bad{% else %}good{% endif %}">{{ "%.2f"|format(row.ratio) }}</td></tr>{% endif %}
+    {% if row.home_rank==row.home_rank %}<tr><th>{{ home }} rank</th><td>#{{ row.home_rank|int }} of {{ row.n_clients|int }}</td></tr>{% endif %}
+    {% if row.best_other==row.best_other %}<tr><th>best other</th><td>{{ "%.0f"|format(row.best_other) }} Mgas/s</td></tr>{% endif %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>drawPlot("t-chart", {{ fig|tojson if fig else 'null' }});</script>{% endblock %}

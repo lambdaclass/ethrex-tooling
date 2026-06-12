@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Merkle{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Merkle parallelism opportunities</h1>{{ suite_picker("/merkle") }}</div>
+<p class="muted">Tests where merkleization runs largely <em>serial</em> (high merkle time, low exec/merkle
+  overlap). <code>serial_merkle</code> = merkle ms × (1 − overlap%) is the recoverable time if it
+  overlapped execution. This signal is unique to {{ home }}'s logs.</p>
+{% if not rows %}<p class="warn">No merkle phase data (run-log ingestion needed).</p>{% endif %}
+<table class="grid compact">
+  <thead><tr>
+    <th>op</th><th>fork</th><th class="num">gas(M)</th>
+    <th class="num">merkle ms</th><th class="num">overlap %</th>
+    <th class="num">serial merkle ms</th><th class="num">{{ home }} mgas/s</th><th class="num">{{ home }} rank</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/op?suite={{ suite_hash }}&op={{ r.op|urlencode }}">{{ r.op }}</a></td>
+    <td>{{ r.fork or "" }}</td>
+    <td class="num">{{ r.benchmark_mgas or "" }}</td>
+    <td class="num">{{ "%.1f"|format(r.merkle_ms) }}</td>
+    <td class="num {% if r.merkle_overlap_pct is not none and r.merkle_overlap_pct < 30 %}bad{% endif %}">
+      {% if r.merkle_overlap_pct==r.merkle_overlap_pct %}{{ "%.0f"|format(r.merkle_overlap_pct) }}{% else %}—{% endif %}</td>
+    <td class="num">{{ "%.1f"|format(r.serial_merkle_ms) }}</td>
+    <td class="num">{{ "%.0f"|format(r.ethrex_mgas) }}</td>
+    <td class="num">{% if r.rank==r.rank %}{{ r.rank|int }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

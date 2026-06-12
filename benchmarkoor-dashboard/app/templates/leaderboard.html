@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard{% endblock %}
+{% block body %}
+<h1>Leaderboard</h1>
+<p class="muted">Ranked by gas-weighted aggregate Mgas/s (real throughput). {{ home }} highlighted.</p>
+{% if not sections %}<p class="warn">No data. Run <code>uv run python -m app.sync</code>.</p>{% endif %}
+
+{% set groups = [('new', 'Latest suites'), ('old', 'Previous (regenerated)')] %}
+{% for age, heading in groups %}
+{% set group = sections | selectattr('suite.age', 'equalto', age) | list %}
+{% if group %}
+<h2 class="group-head">{{ heading }}{% if age == 'old' %} <span class="muted">— historical, not forward-looking</span>{% endif %}</h2>
+{% for sec in group %}
+{% set s = sec.suite %}
+<section class="lb-suite {% if age == 'old' %}dim{% endif %}">
+  <div class="lb-head">
+    <h2>{{ s.name }}</h2>
+    <span class="muted">{{ s.variant }} · {{ s.tests_total }} tests · {{ s.runs_total }} runs ({{ s.runs_completed }} completed) · created {{ s.indexed_at }}</span>
+  </div>
+  {% if sec.commit %}<p class="muted commit">{{ home }} build: <code>{{ sec.commit.sha[:9] }}</code> {{ sec.commit.message }}</p>{% endif %}
+  <div class="lb-grid">
+    {% if sec.fig %}<div id="lb-{{ s.suite_hash }}" class="chart"></div>{% endif %}
+    <table class="grid">
+      <thead><tr>
+        <th title="Rank within this suite by aggregate Mgas/s (1 = fastest).">#</th>
+        <th title="Client instance / mode, e.g. nethermind-bal-full vs -sequential.">instance</th>
+        <th title="Execution-layer client.">client</th>
+        <th class="num" title="Gas-weighted aggregate throughput = sum(test gas) / sum(test time). The real end-to-end speed; this is the ranking metric.">Mgas/s (agg)</th>
+        <th class="num" title="Median of per-test Mgas/s. Every test weighted equally, so small fast tests dominate. Same unit (Mgas/s) as agg.">median</th>
+        <th class="num" title="Mean of per-test Mgas/s. Equal weight per test (not gas-weighted). Same unit (Mgas/s) as agg.">mean</th>
+        <th class="num" title="Number of tests where this instance has the highest per-test Mgas/s.">wins</th>
+        <th class="num" title="Share of total suite gas on tests this instance wins (gas-weighted version of wins).">gas-won %</th>
+        <th class="num" title="Sum of per-test execution time across the suite, in seconds. Lower is faster.">total time (s)</th>
+        <th class="num" title="Number of tests with results in this instance's current (full) run.">tests</th>
+      </tr></thead>
+      <tbody>
+      {% for r in sec.rows %}
+      <tr class="{% if r.is_home %}home{% endif %}">
+        <td>{{ r.rank }}</td>
+        <td>{{ r.instance_id }}{% if r.run_id %} <a href="/run/{{ r.run_id }}" title="block logs">·logs</a>{% endif %}</td>
+        <td>{{ r.client }}</td>
+        <td class="num"><strong>{{ "%.0f"|format(r.agg_mgas) }}</strong></td>
+        <td class="num">{{ "%.0f"|format(r.median_mgas) }}</td>
+        <td class="num">{{ "%.0f"|format(r.mean_mgas) }}</td>
+        <td class="num">{{ r.wins }}</td>
+        <td class="num">{{ "%.1f"|format(r.gas_won_pct) }}</td>
+        <td class="num">{{ "%.1f"|format(r.total_time_s) }}</td>
+        <td class="num">{{ r.tests }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+  {% for sec in sections %}{% if sec.fig %}drawPlot("lb-{{ sec.suite.suite_hash }}", {{ sec.fig|tojson }});{% endif %}
+  {% endfor %}
+</script>
+{% endblock %}
