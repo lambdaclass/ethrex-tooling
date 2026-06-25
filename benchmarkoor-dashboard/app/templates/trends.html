@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Trends{% endblock %}
+{% block body %}
+<h1>Trends over runs</h1>
+<p class="muted">Suite-level aggregate Mgas/s per instance across completed runs. {{ home }} is the bold line; <code>*-bal-full</code> solid, other modes dotted. Partial/index-lag spikes filtered.</p>
+{% if not sections %}<p class="warn">No data. Run <code>uv run python -m app.sync</code>.</p>{% endif %}
+
+{% set groups = [('new', 'Latest suites'), ('old', 'Previous (regenerated)')] %}
+{% for age, heading in groups %}
+{% set group = sections | selectattr('suite.age', 'equalto', age) | list %}
+{% if group %}
+<h2 class="group-head">{{ heading }}{% if age == 'old' %} <span class="muted">— historical, not forward-looking</span>{% endif %}</h2>
+{% for sec in group %}
+{% set s = sec.suite %}
+<section class="lb-suite {% if age == 'old' %}dim{% endif %}">
+  <div class="lb-head">
+    <h2>{{ s.name }}</h2>
+    <span class="muted">{{ s.variant }} · {{ sec.n_runs }} completed runs</span>
+  </div>
+  {% if sec.fig %}<div id="tr-{{ s.suite_hash }}" class="chart"></div>
+  {% else %}<p class="warn">No trend data.</p>{% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+  {% for sec in sections %}{% if sec.fig %}drawPlot("tr-{{ sec.suite.suite_hash }}", {{ sec.fig|tojson }});
+  {% endif %}{% endfor %}
+</script>
+{% endblock %}

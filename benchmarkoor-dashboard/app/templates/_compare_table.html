@@ -1,0 +1,22 @@
+<p class="muted">{{ rows|length }} tests shown · Mgas/s per client (higher is better). {{ home }} highlighted; ratio = {{ home }} ÷ median(others).</p>
+<table class="grid compact">
+  <thead><tr>
+    <th>test</th><th class="num">gas (M)</th>
+    {% for c in clients %}<th class="num {% if c==home %}home{% endif %}">{{ c }}</th>{% endfor %}
+    <th class="num">ratio</th><th class="num">rank</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td class="tname"><a href="/test?suite={{ suite_hash }}&name={{ r.test_name|urlencode }}">{{ r.file }} · {{ r.fork }}</a></td>
+    <td class="num">{{ r.benchmark_mgas or "" }}</td>
+    {% for c in clients %}
+    <td class="num {% if c==home %}home{% endif %}">{% if r[c]==r[c] %}{{ "%.0f"|format(r[c]) }}{% else %}—{% endif %}</td>
+    {% endfor %}
+    <td class="num {% if r.ratio is not none and r.ratio < 1 %}bad{% elif r.ratio is not none %}good{% endif %}">
+      {% if r.ratio==r.ratio %}{{ "%.2f"|format(r.ratio) }}{% else %}—{% endif %}</td>
+    <td class="num">{% if r.home_rank==r.home_rank %}{{ r.home_rank|int }}{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
