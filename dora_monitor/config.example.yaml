@@ -5,6 +5,13 @@ dora_url: "https://dora.bal-devnet-7.ethpandaops.io"
 # in the Dora API. Any name containing this is considered "ours".
 client_match: "ethrex"
 
+# Optional: substrings (case-insensitive) for clients that match client_match
+# but should be dropped entirely — no alerts AND excluded from the heartbeat.
+# Use for deliberately-misbehaving nodes (e.g. a "deathstar" proposer that
+# builds on empty / withholds PTC votes by design).
+# client_exclude:
+#   - "lodestar-ethrex-1"
+
 # Slack incoming webhook URL. Can also be set via SLACK_WEBHOOK_URL env var.
 # Leave empty to disable Slack delivery.
 slack_webhook_url: ""

@@ -17,6 +17,10 @@ class Checks:
 class Config:
     dora_url: str
     client_match: str = "ethrex"
+    # Substrings (case-insensitive) for clients that match `client_match` but
+    # should be dropped entirely: no alerts and excluded from the heartbeat.
+    # Use for deliberately-misbehaving nodes (e.g. a "deathstar" proposer).
+    client_exclude: list[str] = field(default_factory=list)
     slack_webhook_url: str = ""
     discord_webhook_url: str = ""
     network_label: str = ""
