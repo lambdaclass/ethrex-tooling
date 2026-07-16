@@ -17,6 +17,15 @@ def _matches(name: str | None, needle: str) -> bool:
     return needle.lower() in name.lower()
 
 
+def _excluded(name: str | None, cfg: Config) -> bool:
+    return any(_matches(name, ex) for ex in cfg.client_exclude)
+
+
+def _is_ours(name: str | None, cfg: Config) -> bool:
+    """Matches `client_match` and is not muted via `client_exclude`."""
+    return _matches(name, cfg.client_match) and not _excluded(name, cfg)
+
+
 def _burst_update_interval_s(schedule_min: list[int], update_count: int) -> int:
     """Pick the next update interval (seconds) for a burst.
 
@@ -84,7 +93,7 @@ def check_missed_blocks(
     slots = dora.slots(limit=cfg.slot_scan_limit, with_orphaned=1, with_missing=1)
     for s in slots:
         proposer_name = s.get("proposer_name") or ""
-        if not _matches(proposer_name, cfg.client_match):
+        if not _is_ours(proposer_name, cfg):
             continue
         slot_num = int(s.get("slot", 0))
         status = (s.get("status") or "").lower()
@@ -195,7 +204,7 @@ def check_client_head_forks(
         is_canonical = head_root == canonical_root
         for client in fork.get("clients") or []:
             name = client.get("name") or ""
-            if not _matches(name, cfg.client_match):
+            if not _is_ours(name, cfg):
                 continue
             status = (client.get("status") or "").lower()
             client_head = int(client.get("head_slot") or head_slot)
@@ -301,7 +310,7 @@ def check_version_drift(
     """
     versions = dora.execution_versions()
     for name, version in versions.items():
-        if not _matches(name, cfg.client_match):
+        if not _is_ours(name, cfg):
             continue
         prev = state.client_versions.get(name)
         if prev is None:
@@ -418,6 +427,8 @@ def _gather_heartbeat(dora: DoraClient, cfg: Config) -> HeartbeatData:
     for fork in forks:
         for client in fork.get("clients") or []:
             name = client.get("name") or ""
+            if _excluded(name, cfg):
+                continue
             status = (client.get("status") or "unknown").lower()
             entry = {
                 "name": name,
@@ -435,7 +446,7 @@ def _gather_heartbeat(dora: DoraClient, cfg: Config) -> HeartbeatData:
     data.window = max(cfg.heartbeat_slot_window, 1)
     slots = dora.slots(limit=data.window, with_orphaned=1, with_missing=1)
     for s in slots:
-        if not _matches(s.get("proposer_name") or "", cfg.client_match):
+        if not _is_ours(s.get("proposer_name") or "", cfg):
             continue
         data.total_matched_proposals += 1
         st = (s.get("status") or "").lower()
