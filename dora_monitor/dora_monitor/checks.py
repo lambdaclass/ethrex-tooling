@@ -3,12 +3,25 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 
+import requests
+
 from dora_monitor.config import Config
 from dora_monitor.dora import DoraClient
 from dora_monitor.notify import Notifier
 from dora_monitor.state import State
 
 log = logging.getLogger(__name__)
+
+
+def _log_check_error(what: str, e: Exception) -> None:
+    """Log a failed check. Transient Dora network errors (timeout / connection)
+    are expected during upstream hiccups and log as a one-line warning; anything
+    else is a real bug and gets a full traceback.
+    """
+    if isinstance(e, requests.RequestException):
+        log.warning("%s: %s", what, e)
+    else:
+        log.exception("%s: %s", what, e)
 
 
 def _matches(name: str | None, needle: str) -> bool:
@@ -195,7 +208,7 @@ def check_client_head_forks(
     current_forked: set[str] = set()
     forked_candidates: set[str] = set()
     current_lagging: set[str] = set()
-    current_offline: set[str] = set()
+    offline_now: set[str] = set()
     matched_clients: dict[str, dict] = {}
 
     for fork in forks:
@@ -221,7 +234,7 @@ def check_client_head_forks(
             # `optimistic` are normal transient states (esp. at startup); we
             # don't want to page on them. Use sync_lag for stuck-syncing nodes.
             if cfg.checks.offline and status == "offline":
-                current_offline.add(name)
+                offline_now.add(name)
 
             # Skip fork/lag judgement when the client isn't fully online;
             # head_slot is stale and would produce noisy alerts.
@@ -237,17 +250,41 @@ def check_client_head_forks(
                     current_lagging.add(name)
 
     if cfg.checks.offline:
-        new_offline = current_offline - state.offline_clients
-        recovered_offline = state.offline_clients - current_offline
+        # Debounce entering the offline state (mirrors fork_confirm_ticks): a
+        # client must report `offline` for offline_confirm_ticks consecutive
+        # polls before we page, so a single-tick blip during a Dora degradation
+        # window doesn't flap offline / back-online and spam the channel.
+        threshold = max(cfg.offline_confirm_ticks, 1)
+        seen_matched = set(matched_clients.keys())
+        for name in list(state.pending_offline_ticks.keys()):
+            if name not in seen_matched:
+                # Vanished from the payload — drop the in-progress counter. A
+                # client already confirmed offline stays in offline_clients
+                # until it reappears *online*, so a vanish is never a recovery.
+                del state.pending_offline_ticks[name]
+        for name in offline_now:
+            state.pending_offline_ticks[name] = state.pending_offline_ticks.get(name, 0) + 1
+        for name in seen_matched - offline_now:
+            state.pending_offline_ticks.pop(name, None)
+
+        confirmed_offline = {n for n, c in state.pending_offline_ticks.items() if c >= threshold}
+        new_offline = confirmed_offline - state.offline_clients
         for name in sorted(new_offline):
             info = matched_clients.get(name, {})
             extra = f" (last_error: {info['last_error']})" if info.get("last_error") else ""
             notifier.send(
                 f":red_circle: *Client offline* — `{name}` status=`{info.get('status') or 'missing'}`{extra}"
             )
+        state.offline_clients |= new_offline
+
+        # Recovery fires only when a previously-offline client is seen `online`
+        # again — not when it merely drops out of the payload (which happens
+        # during the same degradation that triggered the offline state).
+        online_now = {n for n, c in matched_clients.items() if c.get("status") == "online"}
+        recovered_offline = state.offline_clients & online_now
         for name in sorted(recovered_offline):
             notifier.send(f":large_green_circle: *Client back online* — `{name}` is online again")
-        state.offline_clients = current_offline
+        state.offline_clients -= recovered_offline
 
     if cfg.checks.forks:
         # Bump the consecutive-tick counter for clients seen on a
@@ -681,7 +718,7 @@ def maybe_heartbeat(
         embed = _build_discord_heartbeat(data, cfg)
         fallback = _build_fallback(data, cfg)
     except Exception as e:
-        log.exception("heartbeat compose failed: %s", e)
+        _log_check_error("heartbeat compose failed", e)
         return
     notifier.send_heartbeat(blocks, embed, fallback)
     state.last_heartbeat_ts = now
@@ -697,22 +734,22 @@ def run_checks(
         try:
             check_missed_blocks(dora, notifier, cfg, state)
         except Exception as e:
-            log.exception("missed_blocks check failed: %s", e)
+            _log_check_error("missed_blocks check failed", e)
     if cfg.checks.forks or cfg.checks.sync_lag or cfg.checks.offline:
         try:
             check_client_head_forks(dora, notifier, cfg, state)
         except Exception as e:
-            log.exception("client_head_forks check failed: %s", e)
+            _log_check_error("client_head_forks check failed", e)
     if cfg.checks.version_drift:
         try:
             check_version_drift(dora, notifier, cfg, state)
         except Exception as e:
-            log.exception("version_drift check failed: %s", e)
+            _log_check_error("version_drift check failed", e)
 
     try:
         maybe_heartbeat(dora, notifier, cfg, state)
     except Exception as e:
-        log.exception("heartbeat failed: %s", e)
+        _log_check_error("heartbeat failed", e)
 
     # Trim reported-slots sets to keep state file from growing forever.
     # Guard against last_known_head being 0 (e.g. all client_head_forks

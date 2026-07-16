@@ -31,8 +31,17 @@ class Config:
     # head before we fire a fork alert. Filters out propagation-timing noise
     # where one client briefly leads or lags by a slot or two.
     fork_confirm_ticks: int = 3
+    # Number of consecutive polls a matched client must report `offline` before
+    # we fire an offline alert. Filters out single-tick blips during a Dora
+    # degradation window (which otherwise flap offline/back-online and spam).
+    offline_confirm_ticks: int = 3
     state_file: str | None = "./dora_monitor_state.json"
     http_timeout: int = 10
+    # Extra attempts after the first on a transient Dora network error (timeout
+    # or connection failure), with a linear backoff of `http_retry_backoff` *
+    # attempt seconds between tries.
+    http_retries: int = 2
+    http_retry_backoff: float = 1.0
     debug: bool = False
     heartbeat_interval_minutes: int = 360  # 6 hours; set 0 to disable
     heartbeat_slot_window: int = 256
