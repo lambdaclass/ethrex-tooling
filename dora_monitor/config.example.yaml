@@ -39,11 +39,26 @@ sync_lag_threshold: 16
 # poll_interval=30, fork_confirm_ticks=3 = ~90s of confirmation.
 fork_confirm_ticks: 3
 
+# Number of consecutive polls a matched client must report `offline` before we
+# fire an offline alert. Filters single-tick blips during a Dora degradation
+# window that would otherwise flap offline / back-online and spam the channel.
+# Recovery only fires when the client is seen `online` again, never on a mere
+# drop-out from the API response.
+offline_confirm_ticks: 3
+
 # Path for persisted dedup state. Use null for in-memory only.
 state_file: "./dora_monitor_state.json"
 
 # HTTP timeout in seconds.
 http_timeout: 10
+
+# Retry on a transient Dora network error (timeout / connection failure):
+# `http_retries` extra attempts after the first, with a linear backoff of
+# `http_retry_backoff * attempt` seconds. Rides out brief upstream stalls
+# instead of aborting the whole tick. Keep the worst case
+# (http_timeout * (http_retries + 1) + backoff) under poll_interval.
+http_retries: 2
+http_retry_backoff: 1.0
 
 # Set true for verbose logging.
 debug: false

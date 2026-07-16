@@ -40,7 +40,12 @@ def cli() -> None:
         cfg.debug = True
     _setup_logging(cfg.debug)
 
-    dora = DoraClient(cfg.dora_url, timeout=cfg.http_timeout)
+    dora = DoraClient(
+        cfg.dora_url,
+        timeout=cfg.http_timeout,
+        retries=cfg.http_retries,
+        retry_backoff=cfg.http_retry_backoff,
+    )
 
     slack = (
         SlackNotifier(cfg.slack_webhook_url, cfg.network_label, timeout=cfg.http_timeout)
